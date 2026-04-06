@@ -69,7 +69,7 @@ module.exports = [
       },
       {
         id:3,
-        question: 'Seberapa sering menggunakan skincare?',
+        question: 'Seberapa sering menggunakan sunscreen?',
         answers: [
           {
             type: 'text',

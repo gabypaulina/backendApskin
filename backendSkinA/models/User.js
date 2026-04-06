@@ -84,9 +84,14 @@ const UserSchema = new mongoose.Schema({
         default: null
     },
     fcmToken: {
-    type: String,
-    default: null
-  },
+      type: String,
+      default: null
+    },
+    isVerified: {
+      type: Boolean,
+      default: false
+    },
+    verificationToken: String
 });
 
 module.exports = mongoose.model('User', UserSchema)

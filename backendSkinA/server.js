@@ -10,8 +10,16 @@ const multer = require('multer')
 const path = require('path')
 const fs = require('fs');
 const {Xendit} = require('xendit-node')
-// const socketIo = require('socket.io');
-
+const http = require("http")
+const { Server } = require("socket.io")
+const app = express();
+const server = http.createServer(app)
+const io = new Server(server, {
+  cors: { 
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+})
 
 const User = require('./models/User')
 const Qna = require('./models/Qna')
@@ -22,123 +30,43 @@ const Treatment = require('./models/Treatment')
 const Artikel = require('./models/Artikel')
 const Banner = require('./models/Banner')
 const Dokter = require('./models/Dokter')
+const NotifAdmin = require('./models/NotifAdmin')
+const NotifTerapis = require('./models/NotifTerapis')
 const req = require('express/lib/request')
+const nodemailer = require('nodemailer')
+const crypto = require('crypto')
 
-// const io = socketIo(server, {
-//   cors: {
-//     origin: "*",
-//     methods: ["GET", "POST"]
-//   }
-// });
+// SET UP SOCKET ADMIN ROOM
+io.on("connection", (socket) => {
+  console.log("User connected:", socket.id);
 
-// // Store room connections
-// const rooms = new Map();
+  // UNTUK ADMIN
+  socket.on("join_admin_room", () => {
+    socket.join("admin_room");
+    console.log("Admin joined room")
+  })
 
-// io.on('connection', (socket) => {
-//   console.log('User connected:', socket.id);
+  // UNTUK DOKTER
+  socket.on("join_doctor_room", (doctorName) => {
 
-//   // Join room berdasarkan reservationId
-//   socket.on('join_room', (data) => {
-//     const { reservationId, userId } = data;
-//     socket.join(reservationId);
-//     rooms.set(socket.id, reservationId);
-//     console.log(`User ${userId} joined room: ${reservationId}`);
-//   });
+    const roomName = doctorName.trim().toLowerCase();
+    socket.join(roomName);
 
-//   // Handle text messages
-//   socket.on('send_message', (data) => {
-//     const { reservationId, text, senderType, timestamp } = data;
-//     socket.to(reservationId).emit('receive_message', {
-//       text,
-//       senderType,
-//       timestamp
-//     });
-//   });
+    console.log("Doctor joined room", roomName)
+  })
 
-//   // Handle image messages
-//   socket.on('send_image', (data) => {
-//     const { reservationId, imageUrl, senderType, timestamp } = data;
-//     socket.to(reservationId).emit('receive_image', {
-//       imageUrl,
-//       senderType,
-//       timestamp
-//     });
-//   });
+  // UNTUK TERAPIS
+  socket.on("join_terapis_room", () => {
+    socket.join("terapis_room");
+    console.log("Terapis joined room")
+  })
 
-//   socket.on('disconnect', () => {
-//     console.log('User disconnected:', socket.id);
-//     rooms.delete(socket.id);
-//   });
-// });
+  socket.on("disconnect", () => {
+    console.log("Disconnected:", socket.io)
+  })
+})
 
-// // Configure multer for image uploads
-// const storagee = multer.diskStorage({
-//   destination: function (req, file, cb) {
-//     cb(null, 'uploads/chat/');
-//   },
-//   filename: function (req, file, cb) {
-//     cb(null, Date.now() + path.extname(file.originalname));
-//   }
-// });
-
-// const uploadd = multer({ storagee: storagee });
-
-// // Get chat history
-// app.get('/api/chat/:reservationId', async (req, res) => {
-//   try {
-//     // Implementasi untuk mendapatkan riwayat chat dari database
-//     const messages = await Chat.find({ reservationId: req.params.reservationId })
-//       .sort({ timestamp: 1 });
-//     res.json({ messages });
-//   } catch (error) {
-//     res.status(500).json({ error: error.message });
-//   }
-// });
-
-// // Send text message
-// app.post('/api/chat/send', async (req, res) => {
-//   try {
-//     const { reservationId, text, senderType, timestamp } = req.body;
-    
-//     const message = new Chat({
-//       reservationId,
-//       text,
-//       senderType,
-//       timestamp: new Date(timestamp)
-//     });
-
-//     await message.save();
-//     res.status(200).json({ message: 'Message sent successfully' });
-//   } catch (error) {
-//     res.status(500).json({ error: error.message });
-//   }
-// });
-
-// // Upload image
-// app.post('/api/chat/upload-image', upload.single('image'), async (req, res) => {
-//   try {
-//     const { reservationId, senderType, timestamp } = req.body;
-    
-//     const message = new Chat({
-//       reservationId,
-//       image: `/uploads/chat/${req.file.filename}`,
-//       senderType,
-//       timestamp: new Date(timestamp)
-//     });
-
-//     await message.save();
-//     res.status(200).json({ 
-//       message: 'Image sent successfully',
-//       imageUrl: `/uploads/chat/${req.file.filename}`
-//     });
-//   } catch (error) {
-//     res.status(500).json({ error: error.message });
-//   }
-// });
-
-const app = express();
 const port = 3000;
-
 app.use(cors({
   origin: '*', // Izinkan semua domain (sementara untuk testing)
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
@@ -175,12 +103,13 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
     }
   }
 }));
+app.set("io", io)
 
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
 })
-.then(() => console.log('MongoDB Connected'))
+.then(() => console.log(process.env.BASE_URL, 'MongoDB Connected'))
 .catch(err => console.error('MongoDB Connection Error:', err))
 
 // KONFIGURASI XENDIT
@@ -188,6 +117,30 @@ const xendit = new Xendit({
   secretKey: process.env.XENDIT_SECRET_KEY,
 });
 const {Invoice} = xendit;
+
+// SEND VERIFIKASI EMAIL
+const sendVerificationEmail = async (email, token) => {
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    }
+  });
+
+  const link = `${process.env.BASE_URL}/api/verify-email/${token}`;
+
+  await transporter.sendMail({
+    from: `"APS KINA" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: 'Verifikasi Email',
+    html: `
+      <h2>Verifikasi Email Anda</h2>
+      <p>Klik link dibawah untuk verifikasi:</p>
+      <a href="${link}">${link}</a>
+    `
+  });
+};
 
 const createToken = (userId, role) => {
     return jwt.sign({ id: userId, role }, process.env.JWT_SECRET, {
@@ -378,12 +331,12 @@ const upload = multer({
 // console.log('WebSocket server running on port 8080');
 
 // AUTH
+
 app.get('/api/auth/verify', authenticateUser, (req, res) => {
   res.status(200).json({ valid: true });
 });
 
 // BUAT HASH PASSWORD
-
 // const saltRounds = 10;
 // bcrypt.hash('terapis1', saltRounds, function(err, hash) {
 //   console.log('Hashed password terapis:', hash);
@@ -394,6 +347,7 @@ app.get('/api/auth/verify', authenticateUser, (req, res) => {
 // });
 
 // LOGIN
+
 app.post('/api/login', async (req, res) => {
   console.log('Data diterima dari frontend: ', req.body)
     try{
@@ -406,6 +360,12 @@ app.post('/api/login', async (req, res) => {
         const user = await User.findOne({ email })
         if(!user) {
             return res.status(401).json({ message: 'Akun tidak ada'})
+        }
+
+        if (user.role === 'user' && !user.isVerified) {
+          return res.status(403).json({
+            message: 'Email belum diverifikasi. Silakan cek email Anda'
+          });
         }
 
         const isPasswordValid = await bcrypt.compare(password, user.password);
@@ -483,6 +443,7 @@ app.post('/api/register', async (req, res) => {
 
         // Hash password dengan salt rounds 10
         const hashedPassword = await bcrypt.hash(password, 10);
+        const verificationToken = crypto.randomBytes(32).toString('hex');
 
         const user = await User.create({
             nama,
@@ -491,9 +452,15 @@ app.post('/api/register', async (req, res) => {
             noHandphone,
             alamat,
             password: hashedPassword,
-            role: 'user' // Default role
+            role: 'user', // Default role,
+            verificationToken,
         });
 
+        try{
+          await sendVerificationEmail(email, verificationToken)
+        }catch (err) {
+          console.log('Email gagal dikirim:', err.message)
+        }
         const token = createToken(user._id, user.role);
 
         res.status(201).json({
@@ -513,6 +480,27 @@ app.post('/api/register', async (req, res) => {
         console.log(err.message)
         res.status(500).json({ message: 'Register gagal. Coba Lagi'})
     }
+});
+
+// VERIFIKASI EMAIL
+app.get('/api/verify-email/:token', async (req, res) => {
+  try {
+    const user = await User.findOne({
+      verificationToken: req.params.token
+    });
+
+    if (!user) {
+      return res.status(400).send('Token tidak valid');
+    }
+
+    user.isVerified = true;
+    user.verificationToken = undefined;
+    await user.save();
+
+    res.send('Email berhasil diverifikasi. Silakan login.');
+  } catch (err) {
+    res.status(500).send('Terjadi kesalahan');
+  }
 });
 
 // GET TOTAL USERS
@@ -1089,7 +1077,8 @@ app.post('/api/reservasi', authenticateUser, async (req, res) => {
       if (skincare && skincare.products) {
         produkSkincare = skincare.products.map(product => ({
           name: product.name,
-          productType: product.type
+          productType: product.type,
+          productIngredients: product.ingredients
         }));
       }
     } catch (err) {
@@ -1111,25 +1100,101 @@ app.post('/api/reservasi', authenticateUser, async (req, res) => {
       });
     }
 
+    // CEK DOUBLE BOOKING
+    const existing = await Reservasi.findOne({
+      tanggalReservasi,
+      jamReservasi: waktuReservasi,
+      pic: picValue,
+      tipe
+    });
+
+    if (existing) {
+      return res.status(400).json({
+        message: 'Jam sudah dibooking oleh pasien lain'
+      });
+    }
+
     // Create new reservation
     const newReservasi = await Reservasi.create({
       userId,
       id: customId,
       tipe,
       treatment: tipe === 'NON_MEDIS' ? treatment : null,
-      pic: picValue, // Gunakan nilai yang sudah ditentukan
+      pic: picValue.toLowerCase().trim(), // Gunakan nilai yang sudah ditentukan
       jamReservasi: waktuReservasi,
       tanggalReservasi: tanggalReservasi,
       namaPasien: user.nama,
       status: 'menunggu',
       laporanRutinitas: user.rutinitasHarian ? `Rutinitas harian: ${user.rutinitasHarian}%` : null,
       produkSkincare: produkSkincare,
-      tipeKulit: null
+      tipeKulit: null,
+      hasilTreatment: null,
+      diagnosis: null,
+      note: null,
+      resep: null
     });
 
     // Add reservation to user's reservations array
     user.reservasi.push(newReservasi._id);
     await user.save();
+
+    // PUSH NOTIF KE ADMIN
+    const notif = await NotifAdmin.create({
+      title: "Reservasi Baru",
+      message: `Reservasi baru untuk tanggal ${newReservasi.tanggalReservasi} jam ${newReservasi.jamReservasi}`,
+      type: "RESERVATION",
+      createdAt: new Date(),
+    });
+    await notif.save();
+
+    const io = req.app.get("io");
+      io.to("admin_room").emit("new_notification", {
+      message: "Reservasi baru masuk",
+      data: notif,
+    });
+    
+    console.log("Emit notif ke admin ...")
+
+    // PUSH NOTIF KE DOKTER
+    const doctorRoom = picValue.trim().toLowerCase();
+
+    if(tipe === 'MEDIS' || tipe === 'KONSULTASI') {
+      const notifDokter = await NotifDokter.create({
+        doctorRoom: picValue.trim().toLowerCase(),
+        title: "Reservasi Baru",
+        message: `Reservasi baru atas nama ${user.nama} pada ${newReservasi.tanggalReservasi} jam ${newReservasi.jamReservasi}`,
+        type: "RESERVATION",
+        createdAt: new Date(),
+      })
+      await notifDokter.save();
+
+      const io = req.app.get("io");
+      io.to(doctorRoom).emit("new_notification_dokter", {
+        message: "Reservasi baru untuk Anda",
+        data: notifDokter,
+      });
+      
+      console.log("Emit notif ke dokter ...")
+    }   
+    
+    // PUSH NOTIF KE TERAPIS
+    if(tipe === 'NON_MEDIS') {
+      const notifTer = await NotifTerapis.create({
+        title: "Reservasi Baru",
+        message: `Reservasi baru atas nama ${user.nama} pada ${newReservasi.tanggalReservasi} jam ${newReservasi.jamReservasi}`,
+        type: "RESERVATION",
+        createdAt: new Date(),
+      })
+      await notifTer.save();
+
+      const io = req.app.get("io");
+      io.to("terapis_room").emit("new_notification", {
+        message: "Reservasi baru untuk Anda",
+        data: notifTer,
+      });
+      
+      console.log("Emit notif ke terapis ...")
+    } 
 
     res.status(201).json({
       success: true,
@@ -1163,77 +1228,142 @@ app.get('/api/reservasi/waktuTersedia', authenticateUser, async (req, res) => {
   try {
     const { tanggalReservasi, doctorId } = req.query;
 
-    if (!tanggalReservasi) {
-      return res.status(400).json({ message: 'Parameter tanggalReservasi diperlukan' });
+    if (!tanggalReservasi || !doctorId) {
+      return res.status(400).json({ message: 'Tanggal dan doctorId diperlukan' });
     }
 
-    // Validasi format tanggal "dd/mm/yyyy"
+    // Validasi format tanggal
     if (!/^\d{2}\/\d{2}\/\d{4}$/.test(tanggalReservasi)) {
       return res.status(400).json({ message: 'Format tanggal harus dd/mm/yyyy' });
     }
 
-    // Cari waktu yang sudah dipesan di tanggal tersebut - GUNAKAN STRING LANGSUNG
+    const dokter = await Dokter.findById(doctorId);
+    if (!dokter) {
+      return res.status(404).json({ message: 'Dokter tidak ditemukan' });
+    }
+
+    // Tentukan hari dari tanggal
+    const [day, month, year] = tanggalReservasi.split('/');
+    const dateObj = new Date(`${year}-${month}-${day}`);
+    const dayNames = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+    const dayName = dayNames[dateObj.getDay()];
+
+    // Cari jadwal dokter sesuai hari
+    const jadwalHari = dokter.jadwalPraktik.find(j => j.hari === dayName);
+
+    if (!jadwalHari) {
+      return res.json({ success: true, data: [] });
+    }
+
+    let availableTimeSlots = jadwalHari.jamPraktik.map(jam =>
+      `${jam.jamMulai} - ${jam.jamAkhir}`
+    );
+
+    // Ambil jam yang sudah dibooking
     const existingReservations = await Reservasi.find({
-      tanggalReservasi: tanggalReservasi, // Query dengan string langsung
-      ...(doctorId && { dokter: doctorId }) // Field name 'dokter' sesuai schema
+      tanggalReservasi,
+      pic: doctorId
     });
 
-    let availableTimeSlots = [];
+    const bookedTimeSlots = existingReservations.map(r => r.jamReservasi);
 
-    // Jika ada doctorId, cari jadwal dokter untuk hari tersebut
-    if (doctorId) {
-      const dokter = await Dokter.findById(doctorId);
-      if (dokter && dokter.jadwalPraktik) {
-        // Dapatkan hari dari tanggal
-        const [day, month, year] = tanggalReservasi.split('/');
-        const dateObj = new Date(`${year}-${month}-${day}`);
-        const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-        const dayName = dayNames[dateObj.getDay()];
-        
-        // Cari jadwal untuk hari tersebut
-        const jadwalHariIni = dokter.jadwalPraktik.find(j => j.hari === dayName);
-        
-        if (jadwalHariIni && jadwalHariIni.jamPraktik) {
-          // Format jam praktik menjadi pilihan waktu
-          availableTimeSlots = jadwalHariIni.jamPraktik.map(jam => 
-            `${jam.jamMulai} - ${jam.jamAkhir}`
-          );
-        }
-      }
-    }
-
-    // Jika tidak ada jadwal dokter atau tidak ada doctorId, gunakan waktu default
-    if (availableTimeSlots.length === 0) {
-      // Kembalikan waktu default jika tidak ada jadwal dokter
-      availableTimeSlots = [
-        '08:00 - 09:00',
-        '09:00 - 10:00', 
-        '10:00 - 11:00',
-        '11:00 - 12:00',
-        '13:00 - 14:00',
-        '14:00 - 15:00',
-        '15:00 - 16:00',
-        '16:00 - 17:00'
-      ];
-    }
-
-    // Filter waktu yang sudah dipesan
-    const bookedTimeSlots = existingReservations.map(r => r.waktuReservasi);
-    const finalAvailableTimeSlots = availableTimeSlots.filter(
+    // Hapus jam yang sudah dibooking
+    availableTimeSlots = availableTimeSlots.filter(
       time => !bookedTimeSlots.includes(time)
     );
 
+    // Jika tanggal hari ini → filter jam yang sudah lewat
+    const today = new Date();
+    const isToday =
+      today.getDate() == parseInt(day) &&
+      today.getMonth() + 1 == parseInt(month) &&
+      today.getFullYear() == parseInt(year);
+
+    if (isToday) {
+      const currentHour = today.getHours();
+      const currentMinute = today.getMinutes();
+
+      availableTimeSlots = availableTimeSlots.filter(time => {
+        const startTime = time.split(' - ')[0];
+        const [h, m] = startTime.split(':').map(Number);
+
+        if (h > currentHour) return true;
+        if (h === currentHour && m > currentMinute) return true;
+        return false;
+      });
+    }
+
     res.json({
       success: true,
-      data: finalAvailableTimeSlots
+      data: availableTimeSlots
     });
 
   } catch (err) {
-    console.error('Error getting available time slots:', err);
-    res.status(500).json({ 
+    console.error(err);
+    res.status(500).json({ message: 'Gagal mengambil waktu tersedia' });
+  }
+});
+
+// GET RESERVASI TERDEKAT USER
+app.get('/api/reservasi/nearest', authenticateUser, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const reservations = await Reservasi.find({ userId });
+
+    if (!reservations.length) {
+      return res.json({ success: true, data: null });
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // ⭐ PENTING BANGET
+
+    // Convert tanggalReservasi ke Date object
+    const mapped = reservations.map(r => {
+      const [day, month, year] = r.tanggalReservasi.split('/');
+      const dateObj = new Date(`${year}-${month}-${day}`);
+
+      return {
+        ...r.toObject(),
+        dateObj
+      };
+    });
+
+    // Filter tanggal >= hari ini
+    const futureReservations = mapped.filter(r => r.dateObj >= today);
+
+    if (!futureReservations.length) {
+      return res.json({ success: true, data: null });
+    }
+
+    // Sort paling dekat
+    futureReservations.sort((a, b) => a.dateObj - b.dateObj);
+
+    const nearest = futureReservations[0];
+
+    // Cari info dokter kalau ada
+    let doctorInfo = null;
+
+    if (nearest.pic) {
+      const dokter = await Dokter.findOne({ nama: nearest.pic });
+      if (dokter) {
+        doctorInfo = dokter;
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        ...nearest,
+        doctorInfo
+      }
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
       success: false,
-      message: 'Gagal mendapatkan waktu tersedia',
-      error: err.message 
+      message: 'Gagal ambil reservasi terdekat'
     });
   }
 });
@@ -1261,37 +1391,365 @@ app.get('/api/reservasi', authenticateUser, async (req, res) => {
   }
 });
 
-// GET RESERVASI BY DOCTOR - Perbaiki endpoint ini
-app.get('/api/reservasi/dokter/:doctorId', authenticateUser, async (req, res) => {
-  try {
-    const { doctorId } = req.params;
-    
-    // Cari dokter berdasarkan ID untuk mendapatkan nama
-    const dokter = await Dokter.findById(doctorId);
-    if (!dokter) {
-      return res.status(404).json({ message: 'Dokter tidak ditemukan' });
-    }
+// // GET RESERVASI BY DOCTOR
+// app.get('/api/reservasi/dokter/:doctorId', authenticateUser, async (req, res) => {
+//   try {
+//     const { doctorId } = req.params;
 
-    // Cari reservasi berdasarkan nama dokter (karena di schema pic adalah string nama)
-    const reservations = await Reservasi.find({
-      pic: dokter.nama, // Cari berdasarkan nama dokter
-      tipe: { $in: ['MEDIS', 'KONSULTASI'] } // Hanya reservasi medis/konsultasi
-    }).sort({ tanggalReservasi: 1 });
+//     const dokter = await User.findById(doctorId);
+
+//     if (!dokter) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Dokter tidak ditemukan'
+//       });
+//     }
+
+//     const today = new Date();
+
+//     const startOfDay = new Date();
+//     startOfDay.setHours(0,0,0,0);
+
+//     const endOfDay = new Date();
+//     endOfDay.setHours(23,59,59,999);
+
+//     // Format tanggalReservasi = dd/mm/yyyy
+//     const todayDate =
+//       String(today.getDate()).padStart(2,'0') + '/' +
+//       String(today.getMonth()+1).padStart(2,'0') + '/' +
+//       today.getFullYear();
+
+//     // reservasi yang dibuat hari ini
+//     const latestTodayReservations = await Reservasi.find({
+//       pic: dokter.nama,
+//       createdAt: {
+//         $gte: startOfDay,
+//         $lte: endOfDay
+//       },
+//       tipe: { $in: ['MEDIS', 'KONSULTASI'] }
+//     }).sort({ createdAt: -1 });
+
+//     // reservasi untuk hari ini
+//     const todayReservations = await Reservasi.find({
+//       pic: dokter.nama,
+//       tanggalReservasi: todayDate,
+//       tipe: { $in: ['MEDIS', 'KONSULTASI'] }
+//     }).sort({ jamReservasi: 1 });
+
+//     res.json({
+//       success: true,
+//       doctorName: dokter.nama,
+//       latestTodayReservations,
+//       todayReservations
+//     });
+
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Failed to get doctor reservations'
+//     });
+//   }
+// });
+
+// GET RESERVASI UNTUK DOKTER LOGIN
+app.get("/api/dokter/reservasi", authenticateUser, async (req, res) => {
+  console.log("API Dokter reservasi terpanggil")
+  try {
+    const user = await User.findById(req.user.id);
+    if(!user){
+      return res.status(404).json({message: 'Usser tidak ditemukan'});
+    }
+   
+    const doctorName = user.nama.trim().toLowerCase();
+    console.log("Dokter login: ", doctorName)
+
+    const today = new Date();
+    const day = String(today.getDate()).padStart(2, '0');
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const year = today.getFullYear();
+    const todayString = `${day}/${month}/${year}`;
+
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // semua reservasi hari ini untuk dokter tersebut
+    const todayReservations = await Reservasi.find({
+      pic: doctorName,
+      tanggalReservasi: todayString,
+      tipe: { $in: ['MEDIS', 'KONSULTASI']}
+    }).sort({ jamReservasi: 1 });
+    console.log(todayReservations)
+
+    // ambil 2 reservasi terbaru
+    const latestTodayReservations = await Reservasi.find({
+      pic: doctorName,
+      createdAt: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      }
+    })
+    .sort({ createdAt: -1 })
+    .limit(2);
+
+    const latestTodayReservationsRaw = await Promise.all(
+      latestTodayReservations.map(async (r) => {
+        const qna = await Qna.findOne({userId: r.userId});
+        const userData = await User.findOne(r.userId);
+
+        let age = null;
+        if(userData?.tanggalLahir) {
+          const today = new Date();
+          const birthDate = new Date(userData.tanggalLahir);
+
+          age = today.getFullYear() - birthDate.getFullYear();
+          const m = today.getMonth() - birthDate.getMonth();
+
+          if (m<0 || (m===0 && today.getDate() < birthDate.getDate())) {
+            age--;
+          }
+        }
+
+        return{
+          ...r._doc,
+          qna,
+          age
+        };
+      })
+    )
+
+    const todayReservationsRaw = await Promise.all(
+      todayReservations.map(async (r) => {
+        const qna = await Qna.findOne({userId: r.userId});
+        const userData = await User.findOne(r.userId);
+
+        let age = null;
+        if(userData?.tanggalLahir) {
+          const today = new Date();
+          const birthDate = new Date(userData.tanggalLahir);
+
+          age = today.getFullYear() - birthDate.getFullYear();
+          const m = today.getMonth() - birthDate.getMonth();
+
+          if (m<0 || (m===0 && today.getDate() < birthDate.getDate())) {
+            age--;
+          }
+        }
+
+        return{
+          ...r._doc,
+          qna,
+          age
+        };
+      })
+    )
+    
+    console.log(latestTodayReservations)
 
     res.json({
-      success: true,
-      data: reservations
+      doctorName: doctorName,
+      latestTodayReservations: latestTodayReservationsRaw,
+      todayReservations: todayReservationsRaw
     });
 
   } catch (err) {
-    console.error('Error getting doctor reservations:', err);
-    res.status(500).json({ 
-      success: false,
-      message: 'Failed to get doctor reservations',
-      error: err.message 
-    });
+    console.error(err);
+    res.status(500).json({ message: "Error mengambil reservasi dokter" });
   }
 });
+
+// GET LAPORAN UNTUK DOKTER LOGIN
+app.get("/api/dokter/laporan", authenticateUser, async (req, res) => {
+  try{
+    const user = await User.findById(req.user.id);
+    if(!user){
+      return res.status(404).json({message: 'Usser tidak ditemukan'});
+    }
+    const doctorName = user.nama.trim().toLowerCase();
+    console.log("Dokter login: ", doctorName)
+
+    const laporan = await Reservasi.find({
+      pic: doctorName,
+      status: 'selesai',
+    }).sort({ createdAt: -1 });
+
+    const laporanWithAge = await Promise.all(
+      laporan.map(async (r) => {
+        const userData = await User.findById(r.userId);
+
+        let age = null;
+        if (userData?.tanggalLahir) {
+          const today = new Date();
+          const birthDate = new Date(userData.tanggalLahir);
+
+          age = today.getFullYear() - birthDate.getFullYear();
+          const m = today.getMonth() - birthDate.getMonth();
+
+          if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+            age--;
+          }
+        }
+
+        return {
+          ...r._doc,
+          age
+        };
+      })
+    );
+
+    res.json({laporanWithAge})
+  }catch (err){
+    console.error(err);
+    res.status(500).json({ message: "Error mengambil laporan" });
+  }
+})
+
+// GET RESERVASI UNTUK TERAPIS
+app.get("/api/terapis/reservasi", authenticateUser, async (req, res) => {
+  try {
+    const pic = "terapis";
+    console.log("PIC ", pic)
+
+    const today = new Date();
+    const day = String(today.getDate()).padStart(2, '0');
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const year = today.getFullYear();
+    const todayString = `${day}/${month}/${year}`;
+
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // semua reservasi hari ini untuk dokter tersebut
+    const todayReservations = await Reservasi.find({
+      pic: pic,
+      tanggalReservasi: todayString,
+    }).sort({ jamReservasi: 1 });
+    console.log(todayReservations)
+
+    // ambil 2 reservasi terbaru
+    const latestTodayReservations = await Reservasi.find({
+      pic: pic,
+      createdAt: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      }
+    })
+    .sort({ createdAt: -1 })
+    .limit(2);
+
+    const latestTodayReservationsRaw = await Promise.all(
+      latestTodayReservations.map(async (r) => {
+        const qna = await Qna.findOne({userId: r.userId});
+        const userData = await User.findOne(r.userId);
+
+        let age = null;
+        if(userData?.tanggalLahir) {
+          const today = new Date();
+          const birthDate = new Date(userData.tanggalLahir);
+
+          age = today.getFullYear() - birthDate.getFullYear();
+          const m = today.getMonth() - birthDate.getMonth();
+
+          if (m<0 || (m===0 && today.getDate() < birthDate.getDate())) {
+            age--;
+          }
+        }
+
+        return{
+          ...r._doc,
+          qna,
+          age
+        };
+      })
+    )
+
+    const todayReservationsRaw = await Promise.all(
+      todayReservations.map(async (r) => {
+        const qna = await Qna.findOne({userId: r.userId});
+        const userData = await User.findOne(r.userId);
+
+        let age = null;
+        if(userData?.tanggalLahir) {
+          const today = new Date();
+          const birthDate = new Date(userData.tanggalLahir);
+
+          age = today.getFullYear() - birthDate.getFullYear();
+          const m = today.getMonth() - birthDate.getMonth();
+
+          if (m<0 || (m===0 && today.getDate() < birthDate.getDate())) {
+            age--;
+          }
+        }
+
+        return{
+          ...r._doc,
+          qna,
+          age
+        };
+      })
+    )
+    
+    console.log(latestTodayReservations)
+
+    res.json({
+      pic: pic,
+      latestTodayReservations: latestTodayReservationsRaw,
+      todayReservations: todayReservationsRaw
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error mengambil reservasi terapis" });
+  }
+});
+
+// GET LAPORAN UNTUK TERAPIS
+app.get("/api/terapis/laporan", authenticateUser, async (req, res) => {
+  try{
+    const pic = "terapis";
+    console.log("PIC ", pic)
+
+    const laporan = await Reservasi.find({
+      pic: pic,
+      status: 'selesai',
+    }).sort({ createdAt: -1 });
+
+    const laporanWithAge = await Promise.all(
+      laporan.map(async (r) => {
+        const userData = await User.findById(r.userId);
+
+        let age = null;
+        if (userData?.tanggalLahir) {
+          const today = new Date();
+          const birthDate = new Date(userData.tanggalLahir);
+
+          age = today.getFullYear() - birthDate.getFullYear();
+          const m = today.getMonth() - birthDate.getMonth();
+
+          if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+            age--;
+          }
+        }
+
+        return {
+          ...r._doc,
+          age
+        };
+      })
+    );
+
+    res.json({laporanWithAge})
+  }catch (err){
+    console.error(err);
+    res.status(500).json({ message: "Error mengambil laporan" });
+  }
+})
 
 // GET booked times for specific date and type
 app.get('/api/reservasi/booked-times', authenticateUser, async (req, res) => {
@@ -1423,14 +1881,17 @@ app.get('/api/reservasi/:id', authenticateUser, async (req, res) => {
 app.put('/api/reservasi/:id/status', authenticateUser, async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, hasilTreatment } = req.body;
+    const { status, hasilTreatment, diagnosis, note, resep } = req.body;
 
-    const updateData = { status };
-    
-    // Jika ada hasil treatment, tambahkan ke update data
-    if (hasilTreatment) {
-      updateData.hasilTreatment = hasilTreatment;
-    }
+    console.log("HASIL: ", req.body)
+
+    const updateData = {
+      status,
+      ...(hasilTreatment && { hasilTreatment }),
+      ...(diagnosis && { diagnosis }),
+      ...(note && { note }),
+      ...(resep && { resep }),
+    };
 
     const updatedReservasi = await Reservasi.findByIdAndUpdate(
       id,
@@ -1492,16 +1953,13 @@ app.get('/api/reservasi/history-completed', authenticateUser, async (req, res) =
 
 // Helper function untuk menghitung umur dari tanggal lahir
 function calculateAge(tanggalLahir) {
-  if (!tanggalLahir) return 'Unknown';
-  
-  const [day, month, year] = tanggalLahir.split('/').map(Number);
-  const birthDate = new Date(year, month - 1, day);
+  const birthDate = new Date(tanggalLahir);
   const today = new Date();
   
   let age = today.getFullYear() - birthDate.getFullYear();
-  const monthDiff = today.getMonth() - birthDate.getMonth();
-  
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+
+  const m = today.getMonth() - birthDate.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
     age--;
   }
   
@@ -2552,6 +3010,9 @@ app.post('/api/xendit-callback', express.json({ type: 'application/json' }), asy
 });
 
 const axios = require('axios');
+const NotifDokter = require('./models/NotifDokter')
+const { title } = require('process')
+
 // Endpoint untuk membuat pembayaran (sandbox mode)
 app.post('/api/create-payment', authenticateUser, async (req, res) => {
   try {
@@ -2666,7 +3127,6 @@ app.post('/api/simulate-payment', authenticateUser, async (req, res) => {
   }
 });
 
-
 // Endpoint untuk mendapatkan status pembayaran
 app.get('/api/payment-status/:reservationId', authenticateUser, async (req, res) => {
   try {
@@ -2704,184 +3164,110 @@ app.get('/api/payment-status/:reservationId', authenticateUser, async (req, res)
   }
 });
 
-// const admin = require('firebase-admin');
+// ALL NOTIFICATION (ONLY ADMIN)
+app.get("/notifications", async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-// // Inisialisasi Firebase Admin
-// const serviceAccount = require('./path-to-service-account-key.json');
+    const tomorrow = new Date();
+    tomorrow.setHours(23, 59, 59, 999);
 
-// admin.initializeApp({
-//   credential: admin.credential.cert(serviceAccount)
-// });
+    const notif = await NotifAdmin.find({
+      createdAt: {
+        $gte: today,
+        $lte: tomorrow
+      }
+    }).sort({ createdAt: -1 });
 
-// // Model untuk menyimpan notifikasi
-// const Notification = require('./models/Notification');
+    res.json(notif);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error fetching notifications" });
+  }
+});
 
-// // UPDATE FCM TOKEN USER
-// app.post('/api/user/fcm-token', authenticateUser, async (req, res) => {
-//   try {
-//     const { fcmToken } = req.body;
-//     const userId = req.user.id;
+// ALL NOTIFICATION (ONLY DOKTER)
+app.get("/notifications/dokter", authenticateUser , async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if(!user){
+      return res.status(404).json({ message: 'User tidak ditemukan'});
+    }
+    const doctorName = user.nama.trim().toLowerCase();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-//     await User.findByIdAndUpdate(userId, {
-//       fcmToken: fcmToken
-//     });
+    const tomorrow = new Date();
+    tomorrow.setHours(23, 59, 59, 999);
 
-//     res.json({
-//       success: true,
-//       message: 'FCM token updated successfully'
-//     });
-//   } catch (err) {
-//     console.error('Error updating FCM token:', err);
-//     res.status(500).json({
-//       success: false,
-//       message: 'Gagal update FCM token',
-//       error: err.message
-//     });
-//   }
-// });
+    const notif = await NotifDokter.find({
+      doctorRoom: doctorName,
+      createdAt: {
+        $gte: today,
+        $lte: tomorrow
+      }
+    }).sort({ createdAt: -1 });
 
-// // SEND NOTIFICATION (ADMIN)
-// app.post('/api/admin/send-notification', authenticateUser, adminAuth, async (req, res) => {
-//   try {
-//     const { title, body, type } = req.body;
-//     const adminId = req.user.id;
+    res.json(notif);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error fetching notifications" });
+  }
+});
 
-//     // Dapatkan semua FCM token user
-//     const users = await User.find({ 
-//       role: 'user',
-//       fcmToken: { $exists: true, $ne: null }
-//     });
+// ALL NOTIFICATION (ONLY TERAPIS)
+app.get("/notifications/terapis", async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-//     const fcmTokens = users.map(user => user.fcmToken).filter(token => token);
+    const tomorrow = new Date();
+    tomorrow.setHours(23, 59, 59, 999);
 
-//     if (fcmTokens.length === 0) {
-//       return res.json({
-//         success: true,
-//         message: 'No users with FCM tokens found'
-//       });
-//     }
+    const notif = await NotifTerapis.find({
+      createdAt: {
+        $gte: today,
+        $lte: tomorrow
+      }
+    }).sort({ createdAt: -1 });
 
-//     // Buat payload notifikasi
-//     const message = {
-//       notification: {
-//         title: title,
-//         body: body
-//       },
-//       data: {
-//         type: type || 'general',
-//         title: title,
-//         body: body,
-//         click_action: 'FLUTTER_NOTIFICATION_CLICK'
-//       },
-//       tokens: fcmTokens
-//     };
+    res.json(notif);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error fetching notifications" });
+  }
+});
 
-//     // Kirim notifikasi ke multiple devices
-//     const response = await admin.messaging().sendEachForMulticast(message);
+// TANDAI BACA (ONLY ADMIN) FOR RESERVASION NOTIF
+app.put("/notifications/read-all", async (req,res) => {
+  await NotifAdmin.updateMany({}, {isRead: true});
+  res.json({message: "Semua notifikasi sudah dibaca"})
+})
 
-//     // Simpan notifikasi ke database untuk setiap user
-//     const notificationPromises = users.map(user => 
-//       Notification.create({
-//         userId: user._id,
-//         title: title,
-//         body: body,
-//         type: type || 'general',
-//         sentBy: adminId,
-//         sentAt: new Date()
-//       })
-//     );
+// TANDAI BACA (ONLY DOKTER) FOR RESERVASION NOTIF
+app.put("/notifications/dokter/read-all", authenticateUser, async (req,res) => {
+  try{
+    const user = await User.findById(req.user.id);
 
-//     await Promise.all(notificationPromises);
+    if(!user) {
+      return res.status(404).json({message: "User tidak ditemukan"});
+    }
 
-//     res.json({
-//       success: true,
-//       message: `Notification sent to ${response.successCount} users`,
-//       data: {
-//         successCount: response.successCount,
-//         failureCount: response.failureCount
-//       }
-//     });
-
-//   } catch (err) {
-//     console.error('Error sending notification:', err);
-//     res.status(500).json({
-//       success: false,
-//       message: 'Gagal mengirim notifikasi',
-//       error: err.message
-//     });
-//   }
-// });
-
-// // GET USER NOTIFICATIONS
-// app.get('/api/notifications', authenticateUser, async (req, res) => {
-//   try {
-//     const userId = req.user.id;
-//     const page = parseInt(req.query.page) || 1;
-//     const limit = parseInt(req.query.limit) || 20;
-
-//     const notifications = await Notification.find({ userId })
-//       .sort({ sentAt: -1 })
-//       .limit(limit)
-//       .skip((page - 1) * limit)
-//       .populate('sentBy', 'nama');
-
-//     const total = await Notification.countDocuments({ userId });
-
-//     res.json({
-//       success: true,
-//       data: notifications,
-//       pagination: {
-//         page,
-//         limit,
-//         total,
-//         pages: Math.ceil(total / limit)
-//       }
-//     });
-//   } catch (err) {
-//     console.error('Error getting notifications:', err);
-//     res.status(500).json({
-//       success: false,
-//       message: 'Gagal mengambil notifikasi',
-//       error: err.message
-//     });
-//   }
-// });
-
-// // MARK NOTIFICATION AS READ
-// app.put('/api/notifications/:id/read', authenticateUser, async (req, res) => {
-//   try {
-//     const { id } = req.params;
-//     const userId = req.user.id;
-
-//     const notification = await Notification.findOneAndUpdate(
-//       { _id: id, userId },
-//       { isRead: true, readAt: new Date() },
-//       { new: true }
-//     );
-
-//     if (!notification) {
-//       return res.status(404).json({
-//         success: false,
-//         message: 'Notifikasi tidak ditemukan'
-//       });
-//     }
-
-//     res.json({
-//       success: true,
-//       data: notification
-//     });
-//   } catch (err) {
-//     console.error('Error marking notification as read:', err);
-//     res.status(500).json({
-//       success: false,
-//       message: 'Gagal menandai notifikasi sebagai dibaca',
-//       error: err.message
-//     });
-//   }
-// });
+    const doctorName = user.nama.trim().toLocaleLowerCase();
+    await NotifDokter.updateMany(
+      {doctorRoom: doctorName, isRead: false}, 
+      {$set: {isRead: true}}
+    );
+    res.json({message: "Semua notifikasi sudah dibaca"})
+  }catch (err) {
+    console.log(err);
+    res.status(500).json({ message: "Gagal update notifikasi" });
+  }
+})
 
 
-app.listen(port, '0.0.0.0', () => {
+server.listen(port, '0.0.0.0', () => {
     console.log(`Server is running on ${port}`);
     console.log('Xendit configured with key:', process.env.XENDIT_SECRET_KEY ? 'Yes' : 'No');
 })

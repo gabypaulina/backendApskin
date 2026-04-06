@@ -54,7 +54,11 @@ const ReservasiSchema = new mongoose.Schema({
     productType: { // Changed from 'type' to 'productType' to avoid conflicts
       type: String,
       required: true
-    }
+    },
+    productIngredients: [{
+      type: String,
+      required: true
+    }]
   }],
   tipeKulit: {
     type: String // Changed from array to single string
@@ -63,9 +67,18 @@ const ReservasiSchema = new mongoose.Schema({
     type: Number,
     default: 1
   },
-  hasilTreatment: {
+  hasilTreatment: [{
+    type: String
+  }],
+  diagnosis: {
     type: String
   },
+  note: {
+    type: String
+  },
+  resep: [{
+    type: String
+  }],
   createdAt: {
     type: Date,
     default: Date.now
