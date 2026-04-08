@@ -151,7 +151,7 @@ const createToken = (userId, role) => {
 const authenticateUser = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // Ambil token setelah 'Bearer '
-  
+
   if (!token) {
     return res.status(401).json({ message: 'Token tidak ditemukan' });
   }
@@ -1032,7 +1032,7 @@ app.post('/api/reservasi', authenticateUser, async (req, res) => {
       pic,
       waktuReservasi,
       tanggalReservasi,
-      catatanTambahan
+      amount,
     } = req.body;
 
     const userId = req.user.id;
@@ -1114,6 +1114,18 @@ app.post('/api/reservasi', authenticateUser, async (req, res) => {
       });
     }
 
+    const paymentStatusValue = tipe === 'KONSULTASI' ? 'paid' : 'pending'
+
+    const lastReservasi = await Reservasi.findOne({
+      userId: userId,
+      pic: picValue.toLowerCase().trim()
+    }).sort({ createdAt: 1 })
+
+    let pertemuanValue = 1;
+    if(lastReservasi) {
+      pertemuanValue = (lastReservasi.pertemuan || 0) + 1;
+    }
+
     // Create new reservation
     const newReservasi = await Reservasi.create({
       userId,
@@ -1125,13 +1137,17 @@ app.post('/api/reservasi', authenticateUser, async (req, res) => {
       tanggalReservasi: tanggalReservasi,
       namaPasien: user.nama,
       status: 'menunggu',
+      pertemuan: pertemuanValue,
       laporanRutinitas: user.rutinitasHarian ? `Rutinitas harian: ${user.rutinitasHarian}%` : null,
       produkSkincare: produkSkincare,
       tipeKulit: null,
       hasilTreatment: null,
       diagnosis: null,
       note: null,
-      resep: null
+      resep: null,
+      amount: amount,
+      paymentStatus: paymentStatusValue,
+      paidAt: tipe === 'KONSULTASI' ? new Date() : null
     });
 
     // Add reservation to user's reservations array
@@ -1345,9 +1361,16 @@ app.get('/api/reservasi/nearest', authenticateUser, async (req, res) => {
     let doctorInfo = null;
 
     if (nearest.pic) {
-      const dokter = await Dokter.findOne({ nama: nearest.pic });
+      const dokter = await Dokter.findOne({ 
+        nama: { $regex: `^${nearest.pic}$`, $options: 'i'}
+      });
+
       if (dokter) {
-        doctorInfo = dokter;
+        doctorInfo = {
+          nama: dokter.nama,
+          foto: dokter.foto || 'null',
+          spesialis: dokter.spesialis
+        }
       }
     }
 
@@ -1830,52 +1853,62 @@ app.get('/api/reservasi/today-filtered', authenticateUser, adminAuth, async (req
 });
 
 // GET DETAIL RESERVASI BY ID - DIPERBAIKI
-app.get('/api/reservasi/:id', authenticateUser, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const userId = req.user.id;
+// app.get('/api/reservasi/:id', authenticateUser, async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const userId = req.user.id;
 
-    // Validasi apakah id adalah ObjectId yang valid
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Format ID reservasi tidak valid'
-      });
-    }
+//     // ✅ WAJIB: validasi ObjectId
+//     if (!mongoose.Types.ObjectId.isValid(id)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Format ID tidak valid'
+//       });
+//     }
 
-    // Cari reservasi berdasarkan ID
-    const reservation = await Reservasi.findById(id)
-      .populate('userId', 'nama email noHandphone');
+//     // Cari reservasi berdasarkan ID
+//     const reservation = await Reservasi.findOne({
+//       _id: new mongoose.Types.ObjectId(id),
+//       userId: userId
+//     });
 
-    if (!reservation) {
-      return res.status(404).json({
-        success: false,
-        message: 'Reservasi tidak ditemukan'
-      });
-    }
+//     if (!reservation) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Reservasi tidak ditemukan'
+//       });
+//     }
 
-    // Pastikan user hanya bisa mengakses reservasinya sendiri (kecuali admin)
-    if (req.user.role !== 'admin' && reservation.userId._id.toString() !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: 'Akses ditolak. Ini bukan reservasi Anda.'
-      });
-    }
+//     const data = {
+//       id: reservation._id.toString(),
+//       jamReservasi: reservation.jamReservasi,
+//       tanggalReservasi: reservation.tanggalReservasi,
+//       pic: reservation.pic,
+//       tipe: reservation.tipe,
+//       namaPasien: reservation.namaPasien,
+//       treatment: reservation.treatment,
+//       diagnosis: reservation.diagnosis,
+//       note: reservation.note,
+//       resep: reservation.resep,
+//       pertemuan: reservation.pertemuan,
+//       amount: reservation.amount,
+//       paidAt: reservation.paidAt
+//     };
 
-    res.json({
-      success: true,
-      data: reservation
-    });
+//     res.json({
+//       success: true,
+//       data: data
+//     });
 
-  } catch (err) {
-    console.error('Error getting reservation detail:', err);
-    res.status(500).json({ 
-      success: false,
-      message: 'Gagal mengambil detail reservasi',
-      error: err.message 
-    });
-  }
-});
+//   } catch (err) {
+//     console.error('Error getting reservation detail:', err);
+//     res.status(500).json({ 
+//       success: false,
+//       message: 'Gagal mengambil detail reservasi',
+//       error: err.message 
+//     });
+//   }
+// });
 
 // UPDATE STATUS RESERVASI DAN HASIL TREATMENT
 app.put('/api/reservasi/:id/status', authenticateUser, async (req, res) => {
@@ -1913,44 +1946,6 @@ app.put('/api/reservasi/:id/status', authenticateUser, async (req, res) => {
   }
 });
 
-// GET COMPLETED RESERVATIONS FOR PATIENT HISTORY
-app.get('/api/reservasi/history-completed', authenticateUser, async (req, res) => {
-  try {
-    // Find completed reservations (status: selesai) with pic = terapis
-    const completedReservations = await Reservasi.find({
-      status: 'selesai',
-      pic: 'terapis'
-    })
-    .populate('userId', 'nama tanggalLahir') // Populate user data untuk nama dan umur
-    .sort({ tanggalReservasi: -1, jamReservasi: -1 }); // Urutkan dari yang terbaru
-
-    // Format data untuk response
-    const formattedData = completedReservations.map(reservation => ({
-      id: reservation.id,
-      patientName: reservation.namaPasien,
-      patientAge: reservation.userId ? calculateAge(reservation.userId.tanggalLahir) : 'Unknown',
-      treatment: reservation.treatment,
-      date: reservation.tanggalReservasi,
-      time: reservation.jamReservasi,
-      status: reservation.status,
-      hasilTreatment: reservation.hasilTreatment
-    }));
-
-    res.json({
-      success: true,
-      data: formattedData
-    });
-
-  } catch (err) {
-    console.error('Error getting completed reservations:', err);
-    res.status(500).json({ 
-      success: false,
-      message: 'Gagal mengambil histori pasien',
-      error: err.message 
-    });
-  }
-});
-
 // Helper function untuk menghitung umur dari tanggal lahir
 function calculateAge(tanggalLahir) {
   const birthDate = new Date(tanggalLahir);
@@ -1967,33 +1962,66 @@ function calculateAge(tanggalLahir) {
 }
 
 // GET COMPLETED RESERVATIONS FOR PATIENT HISTORY - DIPERBAIKI
-app.get('/api/reservasi/history-completedd', authenticateUser, async (req, res) => {
+app.get('/api/reservasi/history', authenticateUser, async (req, res) => {
   try {
-    const userId = req.body.id; // Dapatkan ID user yang sedang login
-    
-    // Cari SEMUA reservasi yang diselesaikan oleh user ini
-    const completedReservations = await Reservasi.find({
-      userId: new mongoose.Types.ObjectId(userId),
-      status: { $regex: /^selesai$/i }
-    })
-    .populate('userId', 'nama tanggalLahir')
-    .sort({ tanggalReservasi: -1, jamReservasi: -1 }); // Urutkan dari yang terbaru
+    console.log("🔥 MASUK ENDPOINT");
 
-    // Format data untuk response
-    const formattedData = completedReservations.map(reservation => ({
-      // _id: reservation._id,
-      id: reservation._id.toString(),
-      tanggalReservasi: reservation.tanggalReservasi,
-      jamReservasi: reservation.jamReservasi,
-      tipe: reservation.tipe,
-      treatment: reservation.treatment,
-      pic: reservation.pic,
-      status: reservation.status,
-      hasilTreatment: reservation.hasilTreatment,
-      namaPasien: reservation.namaPasien,
-      patientAge: reservation.userId ? calculateAge(reservation.userId.tanggalLahir) : 'Unknown',
-      // Tambahkan field lain yang diperlukan
-    }));
+    const userId = req.user.id;
+    console.log("USER ID:", userId);
+
+    const completedReservations = await Reservasi.find({
+      userId: userId, // ✅ FIX DI SINI
+      status: 'berhasil',
+      paymentStatus: 'paid'
+    })
+    .sort({ tanggalReservasi: -1, jamReservasi: -1 })
+    .populate('userId', 'tanggalLahir');
+
+    const formattedData = await Promise.all(
+      completedReservations.map(async (reservation) => {
+        const dokter = await Dokter.findOne({ 
+          nama: { $regex: new RegExp(`^${reservation.pic}$`, 'i')}
+        });
+
+        return{
+          id: reservation._id.toString(),
+          tanggalReservasi: reservation.tanggalReservasi,
+          jamReservasi: reservation.jamReservasi,
+          tipe: reservation.tipe,
+          pic: reservation.pic,
+          namaPasien: reservation.namaPasien,
+          treatment: reservation.treatment,
+          paymentStatus: reservation.paymentStatus,
+          amount: reservation.amount,
+          paidAt: reservation.paidAt,
+          note: reservation.note,
+          diagnosis: reservation.diagnosis,
+          resep: reservation.resep,
+          status: reservation.status,
+          umur: calculateAge(reservation.userId?.tanggalLahir) || 'Tidak Ada Tanggal Lahir',
+          fotoDokter: dokter?.foto || null,
+          spesialis: dokter?.spesialis || null,
+          pertemuan: reservation.pertemuan
+        }
+      })
+    )
+    // const formattedData = completedReservations.map(reservation => ({      
+      // id: reservation._id.toString(),
+      // tanggalReservasi: reservation.tanggalReservasi,
+      // jamReservasi: reservation.jamReservasi,
+      // tipe: reservation.tipe,
+      // pic: reservation.pic,
+      // namaPasien: reservation.namaPasien,
+      // treatment: reservation.treatment,
+      // paymentStatus: reservation.paymentStatus,
+      // amount: reservation.amount,
+      // paidAt: reservation.paidAt,
+      // note: reservation.note,
+      // diagnosis: reservation.diagnosis,
+      // resep: reservation.resep,
+      // status: reservation.status,
+      // umur: calculateAge(reservation.userId?.tanggalLahir) || 'Tidak Ada Tanggal Lahir'
+    // }));
 
     res.json({
       success: true,
@@ -2001,11 +2029,10 @@ app.get('/api/reservasi/history-completedd', authenticateUser, async (req, res) 
     });
 
   } catch (err) {
-    console.error('Error getting completed reservations:', err);
-    res.status(500).json({ 
+    console.error("❌ ERROR:", err);
+    res.status(500).json({
       success: false,
-      message: 'Gagal mengambil histori pasien',
-      error: err.message 
+      message: err.message
     });
   }
 });
@@ -3015,48 +3042,79 @@ const { title } = require('process')
 
 // Endpoint untuk membuat pembayaran (sandbox mode)
 app.post('/api/create-payment', authenticateUser, async (req, res) => {
+  console.log('reached create-payment')
   try {
-    const { reservationId, amount, paymentMethod, customerName, customerEmail, phoneNumber } = req.body;
+    const { amount, customerName, customerEmail } = req.body;
 
-    console.log('Creating SANDBOX payment for:', { reservationId, amount, paymentMethod });
+    console.log({amount, customerName, customerEmail });
 
-    // Validasi payment method
-    const validMethods = ['SHOPEEPAY', 'GRABPAY', 'QR_CODE'];
-    if (!validMethods.includes(paymentMethod)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Metode pembayaran tidak valid'
-      });
+    const response = await axios.post(
+      'https://api.xendit.co/v2/invoices',
+      {
+        external_id: `invoice-${Date.now()}`,
+        payer_email: customerEmail,
+        description: 'Pembayaran Klinik A',
+        amount: amount,
+        currency: 'PHP',
+        merchant_name: 'Klinik Skin A',
+        available_banks: ['BCA', 'BRI', 'BNI', 'MANDIRI'],
+        available_ewallets: ['SHOPEEPAY'],
+        should_exclude_credit_card: true,
+        should_exclude_qr_code: true,
+        should_exclude_paylater: true,
+      },
+      {
+        auth: {
+          username: process.env.XENDIT_SECRET_KEY,
+          password: '',
+        }
+      }
+    )
+
+    console.log('Xendit response:', response.data);
+
+    if(!response.data.id){
+      return res.status(500).json({message: 'Invice Xendit tidak valid'})
     }
 
-    // Generate data dummy untuk sandbox
-    const sandboxData = generateSandboxPaymentData(reservationId, amount, paymentMethod);
-    
-    // Simpan ke database
-    await Reservasi.findByIdAndUpdate(reservationId, {
-      paymentStatus: 'pending',
-      paymentMethod: paymentMethod,
-      amount: amount,
-      xenditPaymentId: sandboxData.paymentId,
-      paymentUrl: sandboxData.paymentUrl,
-      virtualAccount: sandboxData.virtualAccount,
-      qrCodeUrl: sandboxData.qrCodeUrl,
-      expiryDate: sandboxData.expiryDate,
-      isSandbox: true
-    });
-
     res.json({
-      success: true,
-      message: 'Pembayaran sandbox berhasil dibuat',
-      data: sandboxData
+      invoice_id: response.data.id,
+      invoice_url: response.data.invoice_url,
+      amount: response.data.amount,
+      status: response.data.status,
     });
 
   } catch (err) {
-    console.error('Sandbox payment error:', err);
+    console.error('Error Xendit: ',err.response?.data || err.message);
+    res.status(500).json({
+      message: 'Gagal membuat pembayaran sandbox',
+    });
+  }
+});
+
+// Endpoint untuk mendapatkan status pembayaran
+app.get('/api/check-payment/:id', async (req, res) => {
+  try {
+    const response = await axios.get(
+      `https://api.xendit.co/v2/invoices/${req.params.id}`,
+      {
+        auth: {
+          username: process.env.XENDIT_SECRET_KEY,
+          password: '',
+        }
+      }
+    )
+
+    res.json({
+        status: response.data.status,
+        paidAt: response.data.paidAt
+    });
+
+  } catch (err) {
+    console.error('Payment status error:', err);
     res.status(500).json({
       success: false,
-      message: 'Gagal membuat pembayaran sandbox',
-      error: err.message
+      message: 'Gagal mendapatkan status pembayaran'
     });
   }
 });
@@ -3127,42 +3185,7 @@ app.post('/api/simulate-payment', authenticateUser, async (req, res) => {
   }
 });
 
-// Endpoint untuk mendapatkan status pembayaran
-app.get('/api/payment-status/:reservationId', authenticateUser, async (req, res) => {
-  try {
-    const { reservationId } = req.params;
 
-    const reservation = await Reservasi.findById(reservationId);
-    
-    if (!reservation) {
-      return res.status(404).json({
-        success: false,
-        message: 'Reservasi tidak ditemukan'
-      });
-    }
-
-    res.json({
-      success: true,
-      data: {
-        status: reservation.paymentStatus,
-        amount: reservation.amount,
-        paidAt: reservation.paidAt,
-        paymentMethod: reservation.paymentMethod,
-        virtualAccount: reservation.virtualAccount,
-        qrCodeUrl: reservation.qrCodeUrl,
-        expiryDate: reservation.expiryDate,
-        isSandbox: reservation.isSandbox
-      }
-    });
-
-  } catch (err) {
-    console.error('Payment status error:', err);
-    res.status(500).json({
-      success: false,
-      message: 'Gagal mendapatkan status pembayaran'
-    });
-  }
-});
 
 // ALL NOTIFICATION (ONLY ADMIN)
 app.get("/notifications", async (req, res) => {
