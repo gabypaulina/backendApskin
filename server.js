@@ -34,6 +34,7 @@ const NotifAdmin = require('./models/NotifAdmin')
 const NotifTerapis = require('./models/NotifTerapis')
 const req = require('express/lib/request')
 const nodemailer = require('nodemailer')
+const resend = require('resend');
 const crypto = require('crypto')
 
 // SET UP SOCKET ADMIN ROOM
@@ -120,22 +121,37 @@ const xendit = new Xendit({
 const {Invoice} = xendit;
 
 // SEND VERIFIKASI EMAIL
-const sendVerificationEmail = async (email, token) => {
-  const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    secure: true,
-    port: 465,
-    // service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    }
-  });
+// const sendVerificationEmail = async (email, token) => {
+//   const transporter = nodemailer.createTransport({
+//     host: "smtp.gmail.com",
+//     secure: true,
+//     port: 465,
+//     // service: 'gmail',
+//     auth: {
+//       user: process.env.EMAIL_USER,
+//       pass: process.env.EMAIL_PASS
+//     }
+//   });
 
+//   const link = `${process.env.BASE_URL}/api/verify-email/${token}`;
+
+//   await transporter.sendMail({
+//     from: `"APS KINA" <${process.env.EMAIL_USER}>`,
+//     to: email,
+//     subject: 'Verifikasi Email',
+//     html: `
+//       <h2>Verifikasi Email Anda</h2>
+//       <p>Klik link dibawah untuk verifikasi:</p>
+//       <a href="${link}">${link}</a>
+//     `
+//   });
+// };
+
+const sendVerificationEmail = async (email, token) => {
   const link = `${process.env.BASE_URL}/api/verify-email/${token}`;
 
-  await transporter.sendMail({
-    from: `"APS KINA" <${process.env.EMAIL_USER}>`,
+  await resend.emails.sendMail({
+    from: "onboarding@resend.dev",
     to: email,
     subject: 'Verifikasi Email',
     html: `
