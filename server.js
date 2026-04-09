@@ -124,7 +124,8 @@ const sendVerificationEmail = async (email, token) => {
   const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
     secure: true,
-    service: 'gmail',
+    port: 465,
+    // service: 'gmail',
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS
@@ -448,6 +449,23 @@ app.post('/api/register', async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, 10);
         const verificationToken = crypto.randomBytes(32).toString('hex');
 
+        // const user = await User.create({
+        //     nama,
+        //     email,
+        //     tanggalLahir,
+        //     noHandphone,
+        //     alamat,
+        //     password: hashedPassword,
+        //     role: 'user', // Default role,
+        //     verificationToken,
+        // });
+
+        try{
+          await sendVerificationEmail(email, verificationToken)          
+        }catch (err) {
+          console.log('Email gagal dikirim:', err.message)
+        }
+
         const user = await User.create({
             nama,
             email,
@@ -459,11 +477,6 @@ app.post('/api/register', async (req, res) => {
             verificationToken,
         });
 
-        try{
-          await sendVerificationEmail(email, verificationToken)
-        }catch (err) {
-          console.log('Email gagal dikirim:', err.message)
-        }
         const token = createToken(user._id, user.role);
 
         res.status(201).json({
