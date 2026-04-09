@@ -34,7 +34,7 @@ const NotifAdmin = require('./models/NotifAdmin')
 const NotifTerapis = require('./models/NotifTerapis')
 const req = require('express/lib/request')
 const nodemailer = require('nodemailer')
-const resend = require('resend');
+const Resend = require('resend');
 const crypto = require('crypto')
 
 // SET UP SOCKET ADMIN ROOM
@@ -147,6 +147,7 @@ const {Invoice} = xendit;
 //   });
 // };
 
+const resend = new Resend(process.env.RESEND_API_KEY);
 const sendVerificationEmail = async (email, token) => {
   const link = `${process.env.BASE_URL}/api/verify-email/${token}`;
 
