@@ -148,10 +148,11 @@ const {Invoice} = xendit;
 // };
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+
 const sendVerificationEmail = async (email, token) => {
   const link = `${process.env.BASE_URL}/api/verify-email/${token}`;
 
-  await resend.emails.sendMail({
+  await resend.emails.send({
     from: "onboarding@resend.dev",
     to: email,
     subject: 'Verifikasi Email',
