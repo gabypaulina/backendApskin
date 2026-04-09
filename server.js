@@ -121,6 +121,8 @@ const {Invoice} = xendit;
 // SEND VERIFIKASI EMAIL
 const sendVerificationEmail = async (email, token) => {
   const transporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    secure: true,
     service: 'gmail',
     auth: {
       user: process.env.EMAIL_USER,
