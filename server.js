@@ -34,7 +34,7 @@ const NotifAdmin = require('./models/NotifAdmin')
 const NotifTerapis = require('./models/NotifTerapis')
 const req = require('express/lib/request')
 const nodemailer = require('nodemailer')
-const Resend = require('resend');
+const {Resend} = require('resend');
 const crypto = require('crypto')
 
 // SET UP SOCKET ADMIN ROOM
