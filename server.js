@@ -106,6 +106,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
 app.set("io", io)
 
 mongoose.connect(process.env.MONGODB_URI, {
+  dbName: "skinA",
   useNewUrlParser: true,
   useUnifiedTopology: true
 })
