@@ -14,6 +14,8 @@ import { Server } from"socket.io";
 const app = express();
 const  server = http.createServer(app);
 import admin from'firebase-admin';
+const tempUsers = {};
+
 
 const serviceAccount = JSON.parse(
   fs.readFileSync('./serviceAccountKey.json', 'utf-8')
@@ -477,6 +479,21 @@ app.post('/api/register', async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, 10);
         const verificationToken = crypto.randomBytes(32).toString('hex');
 
+        tempUsers[verificationToken] = {
+          nama,
+          email,
+          tanggalLahir,
+          noHandphone,
+          alamat,
+          password: hashedPassword
+        }
+
+        try{
+          await sendVerificationEmail(email, verificationToken)          
+        }catch (err) {
+          console.log('Email gagal dikirim:', err.message)
+        }
+
         // const user = await User.create({
         //     nama,
         //     email,
@@ -488,24 +505,7 @@ app.post('/api/register', async (req, res) => {
         //     verificationToken,
         // });
 
-        try{
-          await sendVerificationEmail(email, verificationToken)          
-        }catch (err) {
-          console.log('Email gagal dikirim:', err.message)
-        }
-
-        const user = await User.create({
-            nama,
-            email,
-            tanggalLahir,
-            noHandphone,
-            alamat,
-            password: hashedPassword,
-            role: 'user', // Default role,
-            verificationToken,
-        });
-
-        const token = createToken(user._id, user.role);
+        // const token = createToken(user._id, user.role);
 
         res.status(201).json({
         token,
@@ -568,23 +568,36 @@ app.post('/api/routine-completion', authenticateUser, async (req, res) => {
 
 // VERIFIKASI EMAIL
 app.get('/api/verify-email/:token', async (req, res) => {
-  try {
-    const user = await User.findOne({
-      verificationToken: req.params.token
-    });
+  // try {
+  //   const user = await User.findOne({
+  //     verificationToken: req.params.token
+  //   });
 
-    if (!user) {
-      return res.status(400).send('Token tidak valid');
-    }
+  //   if (!user) {
+  //     return res.status(400).send('Token tidak valid');
+  //   }
 
-    user.isVerified = true;
-    user.verificationToken = undefined;
-    await user.save();
+  //   user.isVerified = true;
+  //   user.verificationToken = undefined;
+  //   await user.save();
 
-    res.send('Email berhasil diverifikasi. Silakan login.');
-  } catch (err) {
-    res.status(500).send('Terjadi kesalahan');
+  //   res.send('Email berhasil diverifikasi. Silakan login.');
+  // } catch (err) {
+  //   res.status(500).send('Terjadi kesalahan');
+  // }
+  const data = tempUsers[req.params.token];
+
+  if(!data) {
+    return res.status(400).send('Token tidak ditemukan')
   }
+
+  const user = await User.create({
+    ...data,
+    role: 'user', // Default role,
+    isVerified: true,
+  });
+
+  delete tempUsers[req.params.token]
 });
 
 // GET TOTAL USERS
