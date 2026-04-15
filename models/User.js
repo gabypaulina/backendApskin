@@ -11,6 +11,10 @@ const UserSchema = new mongoose.Schema({
       unique: true,
       required: true,
     },
+    fcmToken: {
+      type: String,
+      default: null,
+    },
     password: {
       type: String,
       minlength: 8,
@@ -48,12 +52,25 @@ const UserSchema = new mongoose.Schema({
       type: Number,
       default:0,
     },
-    rutinitasHarian: {
-      type: Number,
-      default: 0,
-      min: 0,
-      max: 100
-    },
+    // rutinitasHarian: {
+    //   type: Number,
+    //   default: 0,
+    //   min: 0,
+    //   max: 100
+    // },
+    laporanRutinitas:[
+      {
+        tanggal: {
+          type: Date
+        },
+        persentase: {
+          type: Number,
+          default: 0,
+          min: 0,
+          max: 100
+        }
+      }
+    ],
     skincareRutinitas: {
       pagi: [{
         productId: mongoose.Schema.Types.ObjectId,

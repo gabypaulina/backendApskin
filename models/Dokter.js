@@ -93,8 +93,7 @@ const DokterSchema = new mongoose.Schema({
   jadwalPraktik: [JadwalSchema],
   reservasi: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Reservasi',
-    required: true
+    ref: 'Reservasi'
   },
   jumlahPraktik: {
     type: Number,

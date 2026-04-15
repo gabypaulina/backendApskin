@@ -14,6 +14,11 @@ const http = require("http")
 const { Server } = require("socket.io")
 const app = express();
 const server = http.createServer(app)
+const admin = require('firebase-admin')
+const serviceAccount = require('./serviceAccountKey.json')
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+})
 const io = new Server(server, {
   cors: { 
     origin: "*",
@@ -32,14 +37,18 @@ const Banner = require('./models/Banner')
 const Dokter = require('./models/Dokter')
 const NotifAdmin = require('./models/NotifAdmin')
 const NotifTerapis = require('./models/NotifTerapis')
+const Chat = require('./models/ChatMessage')
 const req = require('express/lib/request')
 const nodemailer = require('nodemailer')
 const {Resend} = require('resend');
 const crypto = require('crypto')
 
+
 // SET UP SOCKET ADMIN ROOM
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
+
+  // NOTIFICATION
 
   // UNTUK ADMIN
   socket.on("join_admin_room", () => {
@@ -62,10 +71,43 @@ io.on("connection", (socket) => {
     console.log("Terapis joined room")
   })
 
+  // CHATTING
+
+  // JOIN ROOM BERDASARKAN RESERVATION
+  socket.on("join_room", (reservationId) => {
+    socket.join(reservationId);
+    console.log("Join chat room:", reservationId);
+  });
+
+  // KIRIM TEXT MESSAGE
+  socket.on("send_message", (data) => {
+    console.log("MESSAGE:", data)
+    io.to(data.reservationId).emit("receive_message", data);
+  });
+
+  // KIRIM IMAGE
+  socket.on("send_image", (data) => {
+    io.to(data.reservationId).emit("receive_image", data);
+  });
+
   socket.on("disconnect", () => {
     console.log("Disconnected:", socket.io)
   })
 })
+
+function sendSocketNotification(data) {
+  io.emit("new_notification", data);
+}
+
+async function sendFirebaseNotification(judul, isi) {
+  await admin.messaging().send({
+    topic: "all_users",
+    notification: {
+      title: judul,
+      body: isi
+    }
+  })
+}
 
 const port = 3000;
 app.use(cors({
@@ -107,7 +149,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
 app.set("io", io)
 
 mongoose.connect(process.env.MONGODB_URI, {
-  dbName: "skinA",
+  // dbName: "skinA",
   useNewUrlParser: true,
   useUnifiedTopology: true
 })
@@ -234,6 +276,25 @@ const storage = multer.diskStorage({
   }
 });
 
+const chatStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const chatDir = path.join(__dirname, 'uploads/chat');
+
+    if (!fs.existsSync(chatDir)) {
+      fs.mkdirSync(chatDir, { recursive: true });
+    }
+
+    cb(null, chatDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, 'chat-' + uniqueSuffix + ext);
+  }
+});
+
+const uploadChat = multer({ storage: chatStorage });
+
 const fileFilter = function (req, file, cb) {
   console.log('Uploading file:', {
     originalname: file.originalname,
@@ -266,95 +327,6 @@ const upload = multer({
   fileFilter: fileFilter
 });
 
-// // Store active connections
-// const activeConnections = new Map();
-
-// wss.on('connection', function connection(ws, req) {
-//   console.log('New WebSocket connection');
-  
-//   // Extract reservation ID from URL
-//   const url = new URL(req.url, `http://${req.headers.host}`);
-//   const reservationId = url.searchParams.get('reservationId');
-//   const userType = url.searchParams.get('userType'); // 'doctor' or 'user'
-//   const userId = url.searchParams.get('userId');
-  
-//   if (!reservationId || !userType || !userId) {
-//     ws.close(1008, 'Missing parameters');
-//     return;
-//   }
-  
-//   // Store connection
-//   const connectionKey = `${reservationId}_${userType}_${userId}`;
-//   activeConnections.set(connectionKey, ws);
-  
-//   console.log(`Connection established for reservation: ${reservationId}, user: ${userId}, type: ${userType}`);
-  
-//   // Handle messages
-//   ws.on('message', function incoming(data) {
-//     try {
-//       const message = JSON.parse(data);
-//       console.log('Received message:', message);
-      
-//       // Broadcast to the other participant
-//       const targetUserType = userType === 'doctor' ? 'user' : 'doctor';
-//       const targetConnectionKey = `${reservationId}_${targetUserType}_${userId}`;
-//       const targetWs = activeConnections.get(targetConnectionKey);
-      
-//       if (targetWs && targetWs.readyState === WebSocket.OPEN) {
-//         targetWs.send(JSON.stringify({
-//           type: 'message',
-//           text: message.text,
-//           image: message.image,
-//           time: new Date().toISOString(),
-//           isUser: userType === 'user'
-//         }));
-//       }
-      
-//       // Save to database (optional)
-//       saveMessageToDatabase(reservationId, message, userType);
-      
-//     } catch (error) {
-//       console.error('Error processing message:', error);
-//     }
-//   });
-  
-//   // Handle connection close
-//   ws.on('close', function() {
-//     activeConnections.delete(connectionKey);
-//     console.log(`Connection closed for: ${connectionKey}`);
-//   });
-  
-//   // Handle errors
-//   ws.on('error', function(error) {
-//     console.error('WebSocket error:', error);
-//     activeConnections.delete(connectionKey);
-//   });
-// });
-
-// // Function to save message to database
-// async function saveMessageToDatabase(reservationId, message, userType) {
-//   try {
-//     // Implement your database saving logic here
-//     // You might want to create a new collection for chat messages
-//     const ChatMessage = require('./models/ChatMessage');
-    
-//     await ChatMessage.create({
-//       reservationId,
-//       text: message.text,
-//       image: message.image,
-//       isUser: userType === 'user',
-//       timestamp: new Date()
-//     });
-    
-//   } catch (error) {
-//     console.error('Error saving message to database:', error);
-//   }
-// }
-
-// console.log('WebSocket server running on port 8080');
-
-// AUTH
-
 app.get('/api/auth/verify', authenticateUser, (req, res) => {
   res.status(200).json({ valid: true });
 });
@@ -370,7 +342,6 @@ app.get('/api/auth/verify', authenticateUser, (req, res) => {
 // });
 
 // LOGIN
-
 app.post('/api/login', async (req, res) => {
   console.log('Data diterima dari frontend: ', req.body)
     try{
@@ -516,6 +487,46 @@ app.post('/api/register', async (req, res) => {
         res.status(500).json({ message: 'Register gagal. Coba Lagi'})
     }
 });
+
+app.post('/api/routine-completion', authenticateUser, async (req, res) => {
+  try{
+    const {percentage, date} = req.body;
+
+    const userId = req.user.id;
+    const parsedDate = new Date(date);
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User tidak ditemukan"});
+    }
+
+    const existing = user.laporanRutinitas.find((item) => {
+      if  (!item.tanggal) return false;
+      return (
+        item.tanggal.getFullYear() === parsedDate.getFullYear() &&
+        item.tanggal.getMonth() === parsedDate.getMonth() &&
+        item.tanggal.getDate() === parsedDate.getDate()
+      );
+    });
+
+    if(existing) {
+      existing.persentase = percentage;
+      console.log("UPDATE DATA");
+    }else{
+      console.log("INSERT DATA")
+      user.laporanRutinitas.push({
+        tanggal: parsedDate,
+        persentase: percentage
+      });
+    }
+
+    await user.save();
+    res.json({ success: true })
+  }catch(err){
+    console.error(err);
+    res.status(500).json({ error: err.message })
+  }
+})
 
 // VERIFIKASI EMAIL
 app.get('/api/verify-email/:token', async (req, res) => {
@@ -703,6 +714,53 @@ app.get('/api/qna/history', authenticateUser, async (req, res) => {
         });
     }
 });
+
+app.get('/api/qna/by-date', authenticateUser, async (req, res) => {
+  try {
+    const userId = req.user.id
+    const {date} = req.query
+
+    if(!date) {
+      return res.status(400).json({
+        success: true,
+        message: 'Tanggal wajib diisi'
+      })
+    }
+
+    const start = new Date(date);
+    const end = new Date(date);
+    end.setHours(23,59,59,999);
+
+    const qna = await Qna.findOne({
+      userId,
+      completedAt: {
+        $gte: start,
+        $lte: end
+      }
+    });
+
+    if (!qna) {
+      return res.json({
+        success: true,
+        data: null
+      })
+    }
+
+    res.json({
+      success: true,
+      data : {
+        completedAt: qna.completedAt,
+        responses: qna.responses
+      }
+    });
+  }catch (err){
+    res.status(500).json({
+      success: false,
+      message: 'Erorr ambil QNA',
+      error: err.message
+    })
+  }
+})
 
 // EDIT PROFIL
 app.put('/api/user/update', authenticateUser, async (req,res) => {
@@ -948,37 +1006,36 @@ app.put('/api/user/rutinitas', authenticateUser, async (req, res) => {
   }
 });
 
-// GET USER RUTINITAS
-app.get('/api/user/rutinitas', authenticateUser, async (req, res) => {
+app.get('/api/user', authenticateUser, async (req, res) => {
   try {
     const userId = req.user.id;
-    
-    const user = await User.findById(userId).select('rutinitasHarian skincareRutinitas');
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User tidak ditemukan'
-      });
-    }
 
+    const user = await User.findById(userId).lean();
+
+    const today = new Date();
+    today.setHours(0,0,0,0);
+
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+
+    // cari laporan hari ini saja
+    const todayReport = user.laporanRutinitas.find(l => {
+      const tgl = new Date(l.tanggal);
+      return tgl >= today && tgl < tomorrow;
+    });
+
+    const persentaseHariIni = todayReport ? todayReport.persentase : 0;
+
+    console.log(persentaseHariIni)
     res.json({
-      success: true,
-      data: {
-        rutinitasHarian: user.rutinitasHarian || 0,
-        skincareRutinitas: user.skincareRutinitas || {
-          pagi: [],
-          malam: []
-        }
-      }
+      ...user,
+      rutinitasHarian: persentaseHariIni
     });
 
   } catch (err) {
-    console.error('Error getting user rutinitas:', err);
-    res.status(500).json({ 
-      success: false,
-      message: 'Gagal mengambil data rutinitas',
-      error: err.message 
+    res.status(500).json({
+      message: "Gagal ambil user",
+      error: err.message
     });
   }
 });
@@ -1178,8 +1235,8 @@ app.post('/api/reservasi', authenticateUser, async (req, res) => {
       tipeKulit: null,
       hasilTreatment: null,
       diagnosis: null,
-      note: null,
-      resep: null,
+      note: "",
+      resep: [],
       amount: amount,
       paymentStatus: paymentStatusValue,
       paidAt: tipe === 'KONSULTASI' ? new Date() : null
@@ -1270,6 +1327,111 @@ app.post('/api/reservasi', authenticateUser, async (req, res) => {
       success: false,
       message: 'Gagal membuat reservasi',
       error: err.message 
+    });
+  }
+});
+
+// TAMBAH RESEP
+app.post('/api/reservasi/:id/resep', async (req, res) => {
+  try {
+    const { namaObat, dosis } = req.body;
+
+    if (!namaObat || !dosis) {
+      return res.status(400).json({
+        message: 'Nama obat dan dosis wajib diisi'
+      });
+    }
+
+    const reservasi = await Reservasi.findById(req.params.id);
+
+    if (!reservasi) {
+      return res.status(404).json({
+        message: 'Reservasi tidak ditemukan'
+      });
+    }
+
+    // 🔥 push ke array resep
+    reservasi.resep.push({
+      namaObat,
+      dosis
+    });
+
+    reservasi.updatedAt = new Date();
+
+    await reservasi.save();
+
+    req.io.to(reservasi._id.toString()).emit("receive_message", {
+      reservationId: reservasi._id,
+      type: "resep",
+      senderType: "doctor",
+      timestamp: new Date().toString(),
+      resepId: reservasi._id.toString(),
+      resep: [
+        {
+          namaObat,
+          dosis
+        }
+      ]
+    })
+
+    res.status(200).json({
+      message: 'Resep berhasil ditambahkan',
+      data: reservasi.resep
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: 'Gagal menambahkan resep'
+    });
+  }
+});
+
+// TAMBAH CATATAN DOKTER
+app.post('/api/reservasi/:id/catatan', async (req, res) => {
+  try {
+    const { diagnosis, catatanDokter } = req.body;
+
+    const reservasi = await Reservasi.findById(req.params.id);
+
+    if (!reservasi) {
+      return res.status(404).json({
+        message: 'Reservasi tidak ditemukan'
+      });
+    }
+
+    // 🔥 update field
+    if (diagnosis) reservasi.diagnosis = diagnosis;
+    if (catatanDokter) reservasi.note = catatanDokter;
+
+    reservasi.updatedAt = new Date();
+
+    await reservasi.save();
+
+    req.io.to(reservasi._id.toString()).emit("receive_message", {
+      reservationId: reservasi._id,
+      type: "catatan",
+      senderType: "doctor",
+      timestamp: new Date().toString(),
+      catatanId: reservasi._id.toString(),
+      data: {
+        diagnosis: diagnosis,
+        note: catatanDokter
+      }
+    })
+
+    res.status(200).json({
+      message: 'Catatan dokter berhasil disimpan',
+      data: {
+        diagnosis: reservasi.diagnosis,
+        note: reservasi.catatanDokter
+      }
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: 'Gagal menyimpan catatan dokter'
     });
   }
 });
@@ -1449,66 +1611,23 @@ app.get('/api/reservasi', authenticateUser, async (req, res) => {
   }
 });
 
-// // GET RESERVASI BY DOCTOR
-// app.get('/api/reservasi/dokter/:doctorId', authenticateUser, async (req, res) => {
-//   try {
-//     const { doctorId } = req.params;
+const calculateAverageRoutine = (user, reservationCreatedAt) => {
+  if (!user?.laporanRutinitas || user.laporanRutinitas.length === 0) return 0;
 
-//     const dokter = await User.findById(doctorId);
+  const startDate = new Date(user.qnaCompletedAt); // tanggal register
+  const endDate = new Date(reservationCreatedAt); // tanggal booking dibuat
 
-//     if (!dokter) {
-//       return res.status(404).json({
-//         success: false,
-//         message: 'Dokter tidak ditemukan'
-//       });
-//     }
+  const filtered = user.laporanRutinitas.filter(item => {
+    const tgl = new Date(item.tanggal);
+    return tgl >= startDate && tgl <= endDate;
+  });
 
-//     const today = new Date();
+  if (filtered.length === 0) return 0;
 
-//     const startOfDay = new Date();
-//     startOfDay.setHours(0,0,0,0);
+  const total = filtered.reduce((sum, item) => sum + item.persentase, 0);
 
-//     const endOfDay = new Date();
-//     endOfDay.setHours(23,59,59,999);
-
-//     // Format tanggalReservasi = dd/mm/yyyy
-//     const todayDate =
-//       String(today.getDate()).padStart(2,'0') + '/' +
-//       String(today.getMonth()+1).padStart(2,'0') + '/' +
-//       today.getFullYear();
-
-//     // reservasi yang dibuat hari ini
-//     const latestTodayReservations = await Reservasi.find({
-//       pic: dokter.nama,
-//       createdAt: {
-//         $gte: startOfDay,
-//         $lte: endOfDay
-//       },
-//       tipe: { $in: ['MEDIS', 'KONSULTASI'] }
-//     }).sort({ createdAt: -1 });
-
-//     // reservasi untuk hari ini
-//     const todayReservations = await Reservasi.find({
-//       pic: dokter.nama,
-//       tanggalReservasi: todayDate,
-//       tipe: { $in: ['MEDIS', 'KONSULTASI'] }
-//     }).sort({ jamReservasi: 1 });
-
-//     res.json({
-//       success: true,
-//       doctorName: dokter.nama,
-//       latestTodayReservations,
-//       todayReservations
-//     });
-
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({
-//       success: false,
-//       message: 'Failed to get doctor reservations'
-//     });
-//   }
-// });
+  return Math.round(total / filtered.length);
+};
 
 // GET RESERVASI UNTUK DOKTER LOGIN
 app.get("/api/dokter/reservasi", authenticateUser, async (req, res) => {
@@ -1553,10 +1672,14 @@ app.get("/api/dokter/reservasi", authenticateUser, async (req, res) => {
     .sort({ createdAt: -1 })
     .limit(2);
 
+    const allReservations = await Reservasi.find({
+      pic: doctorName,
+    }).sort({createdAt: -1})
+
     const latestTodayReservationsRaw = await Promise.all(
       latestTodayReservations.map(async (r) => {
         const qna = await Qna.findOne({userId: r.userId});
-        const userData = await User.findOne(r.userId);
+        const userData = await User.findById(r.userId);
 
         let age = null;
         if(userData?.tanggalLahir) {
@@ -1571,10 +1694,13 @@ app.get("/api/dokter/reservasi", authenticateUser, async (req, res) => {
           }
         }
 
+        const avgRoutine = calculateAverageRoutine(userData, r.createdAt);
+
         return{
           ...r._doc,
           qna,
-          age
+          age,
+          laporanRutinitasAvg: avgRoutine
         };
       })
     )
@@ -1597,20 +1723,25 @@ app.get("/api/dokter/reservasi", authenticateUser, async (req, res) => {
           }
         }
 
+        const avgRoutine = calculateAverageRoutine(userData, r.createdAt);
+
+
         return{
           ...r._doc,
           qna,
-          age
+          age,
+          laporanRutinitasAvg: avgRoutine
         };
       })
     )
     
-    console.log(latestTodayReservations)
+    console.log("All Reservations : ", allReservations)
 
     res.json({
       doctorName: doctorName,
       latestTodayReservations: latestTodayReservationsRaw,
-      todayReservations: todayReservationsRaw
+      todayReservations: todayReservationsRaw,
+      allReservations: allReservations
     });
 
   } catch (err) {
@@ -1727,6 +1858,10 @@ app.get("/api/terapis/reservasi", authenticateUser, async (req, res) => {
       })
     )
 
+    const allReservations = await Reservasi.find({
+      pic: 'terapis',
+    }).sort({createdAt: -1})
+
     const todayReservationsRaw = await Promise.all(
       todayReservations.map(async (r) => {
         const qna = await Qna.findOne({userId: r.userId});
@@ -1758,7 +1893,8 @@ app.get("/api/terapis/reservasi", authenticateUser, async (req, res) => {
     res.json({
       pic: pic,
       latestTodayReservations: latestTodayReservationsRaw,
-      todayReservations: todayReservationsRaw
+      todayReservations: todayReservationsRaw,
+      allReservations: allReservations
     });
 
   } catch (err) {
@@ -1887,65 +2023,7 @@ app.get('/api/reservasi/today-filtered', authenticateUser, adminAuth, async (req
   }
 });
 
-// GET DETAIL RESERVASI BY ID - DIPERBAIKI
-// app.get('/api/reservasi/:id', authenticateUser, async (req, res) => {
-//   try {
-//     const { id } = req.params;
-//     const userId = req.user.id;
-
-//     // ✅ WAJIB: validasi ObjectId
-//     if (!mongoose.Types.ObjectId.isValid(id)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Format ID tidak valid'
-//       });
-//     }
-
-//     // Cari reservasi berdasarkan ID
-//     const reservation = await Reservasi.findOne({
-//       _id: new mongoose.Types.ObjectId(id),
-//       userId: userId
-//     });
-
-//     if (!reservation) {
-//       return res.status(404).json({
-//         success: false,
-//         message: 'Reservasi tidak ditemukan'
-//       });
-//     }
-
-//     const data = {
-//       id: reservation._id.toString(),
-//       jamReservasi: reservation.jamReservasi,
-//       tanggalReservasi: reservation.tanggalReservasi,
-//       pic: reservation.pic,
-//       tipe: reservation.tipe,
-//       namaPasien: reservation.namaPasien,
-//       treatment: reservation.treatment,
-//       diagnosis: reservation.diagnosis,
-//       note: reservation.note,
-//       resep: reservation.resep,
-//       pertemuan: reservation.pertemuan,
-//       amount: reservation.amount,
-//       paidAt: reservation.paidAt
-//     };
-
-//     res.json({
-//       success: true,
-//       data: data
-//     });
-
-//   } catch (err) {
-//     console.error('Error getting reservation detail:', err);
-//     res.status(500).json({ 
-//       success: false,
-//       message: 'Gagal mengambil detail reservasi',
-//       error: err.message 
-//     });
-//   }
-// });
-
-// UPDATE STATUS RESERVASI DAN HASIL TREATMENT
+// UPDATE STATUS RESERVASI DAN HASIL TREATMENT TERAPIS DAN MEDIS DOKTER
 app.put('/api/reservasi/:id/status', authenticateUser, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1981,6 +2059,47 @@ app.put('/api/reservasi/:id/status', authenticateUser, async (req, res) => {
   }
 });
 
+// UPDATE STATUS RESERVASI KONSULTASI 
+app.put('/api/reservasi/:id', authenticateUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    console.log("=== UPDATE STATUS ===");
+    console.log("ID:", id);
+    console.log("STATUS DARI FLUTTER:", status);
+
+    const updatedReservasi = await Reservasi.findByIdAndUpdate(
+      id,
+      {status: status},
+      { new: true }
+    );
+
+    if (!updatedReservasi) {
+      return res.status(404).json({
+        message: 'Reservasi tidak ditemukan',
+      });
+    }
+
+    io.to(id).emit("session_finished", {
+      reservationId: id,
+      status: status,
+      by: 'user' | 'doctor'
+    }),
+
+    res.status(200).json({
+      message: 'Status berhasil diupdate',
+      data: updatedReservasi,
+    });
+
+  } catch (error) {
+    console.error("ERROR UPDATE STATUS:", error);
+    res.status(500).json({
+      message: 'Terjadi kesalahan server',
+    });
+  }
+});
+
 // Helper function untuk menghitung umur dari tanggal lahir
 function calculateAge(tanggalLahir) {
   const birthDate = new Date(tanggalLahir);
@@ -2006,7 +2125,7 @@ app.get('/api/reservasi/history', authenticateUser, async (req, res) => {
 
     const completedReservations = await Reservasi.find({
       userId: userId, // ✅ FIX DI SINI
-      status: 'berhasil',
+      status: 'selesai',
       paymentStatus: 'paid'
     })
     .sort({ tanggalReservasi: -1, jamReservasi: -1 })
@@ -2136,10 +2255,8 @@ app.get('/api/chat/:reservationId', authenticateUser, async (req, res) => {
     // Implementasi untuk mengambil pesan chat dari database
     const messages = await Chat.find({ reservationId }).sort({ createdAt: 1 });
     
-    res.json({
-      success: true,
-      messages
-    });
+    res.json(messages);
+  
   } catch (err) {
     console.error('Error getting chat messages:', err);
     res.status(500).json({ 
@@ -2151,23 +2268,22 @@ app.get('/api/chat/:reservationId', authenticateUser, async (req, res) => {
 });
 
 // Send message
-app.post('/api/chat/:reservationId', authenticateUser, upload.single('image'), async (req, res) => {
+app.post('/api/chat/text', authenticateUser, async (req, res) => {
   try {
-    const { reservationId } = req.params;
-    const { text, isUser } = req.body;
+    // const { reservationId } = req.params;
+    const { reservationId, text, senderType, type } = req.body;
+    console.log("BODY:", req.body)
     
     const newMessage = await Chat.create({
       reservationId,
       text,
-      image: req.file ? `/uploads/chat/${req.file.filename}` : null,
-      isUser: isUser === 'true',
-      createdAt: new Date()
+      type: type || 'text',
+      senderType,
+      timestamp: new Date()
     });
     
-    res.status(201).json({
-      success: true,
-      message: newMessage
-    });
+    res.status(201).json(newMessage);
+
   } catch (err) {
     console.error('Error sending message:', err);
     res.status(500).json({ 
@@ -2175,6 +2291,132 @@ app.post('/api/chat/:reservationId', authenticateUser, upload.single('image'), a
       message: 'Gagal mengirim pesan',
       error: err.message 
     });
+  }
+});
+
+// system send message
+app.post('/api/chat/system', async (req, res) => {
+  try {
+    const { reservationId, text, type, timestamp } = req.body;
+
+    const message = await Chat.create({
+      reservationId,
+      text,
+      senderType: 'doctor',
+      type,
+      timestamp: timestamp || new Date()
+    });
+
+    io.to(reservationId).emit('receive_message', message);
+
+    res.status(201).json(message);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// send image
+app.post('/api/chat/upload/:reservationId', authenticateUser, uploadChat.single('image'), (req, res) => {
+  try {
+    console.log("FILE:", req.file);
+
+    res.json({
+      imageUrl: `/uploads/chat/${req.file.filename}`
+    });
+  } catch (err) {
+    res.status(500).json({
+      message: 'Gagal upload gambar',
+      error: err.message
+    });
+  }
+});
+
+// SAVE GAMBAR CHAT
+app.post('/api/chat/image', authenticateUser, async (req, res) => {
+  try {
+    const { reservationId, imageUrl, senderType } = req.body;
+
+    const newMessage = await Chat.create({
+      reservationId,
+      image: imageUrl,
+      senderType,
+      timestamp: new Date()
+    });
+
+    res.status(201).json(newMessage);
+
+  } catch (err) {
+    console.error('Error saving image message:', err);
+    res.status(500).json({
+      message: 'Gagal menyimpan gambar',
+      error: err.message
+    });
+  }
+});
+
+// UPDATE RESEP
+app.put('/api/reservasi/:id/resep', async (req, res) => {
+  try {
+    const { resep } = req.body;
+
+    const updated = await Reservasi.findByIdAndUpdate(
+      req.params.id,
+      {
+        resep: resep,
+        updatedAt: new Date()
+      },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: 'Resep berhasil diupdate',
+      data: updated
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.put('/api/reservasi/:id', async (req, res) => {
+  const reservasi = await Reservasi.findByIdAndUpdate(
+    req.params.id,
+    req.body,
+    { new: true }
+  );
+
+  io.to(req.params.id).emit("session_finished", {
+    reservationId: req.params.id,
+    by: req.body.updatedBy || 'user'
+  });
+
+  res.json(reservasi);
+});
+
+// UPDATE CATATAN
+app.put('/api/reservasi/:id/catatan', async (req, res) => {
+  try {
+    const { diagnosis, note } = req.body;
+
+    const updated = await Reservasi.findByIdAndUpdate(
+      req.params.id,
+      {
+        diagnosis,
+        note,
+        updatedAt: new Date()
+      },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: 'Catatan berhasil diupdate',
+      data: updated
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 
@@ -3079,7 +3321,7 @@ const { title } = require('process')
 app.post('/api/create-payment', authenticateUser, async (req, res) => {
   console.log('reached create-payment')
   try {
-    const { amount, customerName, customerEmail } = req.body;
+    const { amount, customerName, customerEmail, paymentMethod, reservationId } = req.body;
 
     console.log({amount, customerName, customerEmail });
 
@@ -3117,6 +3359,8 @@ app.post('/api/create-payment', authenticateUser, async (req, res) => {
       invoice_url: response.data.invoice_url,
       amount: response.data.amount,
       status: response.data.status,
+      paymentMethod: paymentMethod,
+      reservationId: reservationId
     });
 
   } catch (err) {
@@ -3142,7 +3386,9 @@ app.get('/api/check-payment/:id', async (req, res) => {
 
     res.json({
         status: response.data.status,
-        paidAt: response.data.paidAt
+        paidAt: response.data.paidAt,
+        amount: response.data.amount,
+        invoice_id: response.data.id
     });
 
   } catch (err) {
@@ -3220,8 +3466,6 @@ app.post('/api/simulate-payment', authenticateUser, async (req, res) => {
   }
 });
 
-
-
 // ALL NOTIFICATION (ONLY ADMIN)
 app.get("/notifications", async (req, res) => {
   try {
@@ -3297,6 +3541,105 @@ app.get("/notifications/terapis", async (req, res) => {
   }
 });
 
+// NOTIFIKASI IKLAN
+app.post("/notification/send", async (req, res) => {
+  try {
+    const { tokens, judul, isi } = req.body;
+
+    if(!tokens || tokens.length === 0) {
+      return res.status(400).json({message: 'Token kosong'})
+    }
+
+    // 1. kirim socket (real-time)
+    io.emit("new_notification", {
+      title: judul,
+      body: isi,
+      time: new Date(),
+    });
+
+    // 2. kirim firebase (push notif)
+    await admin.messaging().send({
+      topic: "all_users",
+      notification: {
+        title: judul,
+        body: isi,
+      },
+      tokens: tokens
+    });
+
+    // 3. response
+    res.json({
+      success: true,
+      message: "Notifikasi berhasil dikirim",
+    });
+
+  } catch (e) {
+    console.log(e);
+    res.status(500).json({ success: false });
+  }
+});
+
+let userTokens = [];
+
+// SAVE TOKEN DARI FLUTTER
+app.post("/save-fcm-token", (req, res) => {
+  const { token } = req.body;
+
+  console.log("TOKEN MASUK:", token);
+
+  if (!token) {
+    return res.status(400).json({ message: "Token kosong" });
+  }
+
+  if (!userTokens.includes(token)) {
+    userTokens.push(token);
+  }
+
+  console.log("TOTAL TOKEN:", userTokens.length);
+
+  res.json({
+    message: "Token berhasil disimpan",
+    total: userTokens.length,
+  });
+});
+
+// SEND NOTIF KE ALL USER
+app.post("/send-to-all", async (req, res) => {
+  const { title, body } = req.body;
+
+  if (!title || !body) {
+    return res.status(400).json({ message: "Title/body kosong" });
+  }
+
+  if (userTokens.length === 0) {
+    return res.status(400).json({ message: "Tidak ada token user" });
+  }
+
+  const message = {
+    notification: {
+      title: title,
+      body: body,
+    },
+    tokens: userTokens,
+  };
+
+  try {
+    const response = await admin.messaging().sendEachForMulticast(message);
+
+    res.json({
+      message: "Notifikasi terkirim",
+      success: response.successCount,
+      failure: response.failureCount,
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({
+      message: "Gagal kirim notifikasi",
+      error: error.message,
+    });
+  }
+});
+
 // TANDAI BACA (ONLY ADMIN) FOR RESERVASION NOTIF
 app.put("/notifications/read-all", async (req,res) => {
   await NotifAdmin.updateMany({}, {isRead: true});
@@ -3324,6 +3667,102 @@ app.put("/notifications/dokter/read-all", authenticateUser, async (req,res) => {
   }
 })
 
+// LAPORAN RESERVASI ADMIN
+// GET laporan reservasi (hanya selesai & sudah bayar)
+app.get('/laporan/reservasi', async (req, res) => {
+  try {
+    const reservasi = await Reservasi.find({
+      status: 'selesai',
+      paymentStatus: 'paid'
+    }).sort({ createdAt: -1 }); // optional: terbaru dulu
+
+    const formattedData = reservasi.map(item => ({
+      id: item.id,
+      nama: item.namaPasien,
+      pic: item.pic,
+      tanggal: item.tanggalReservasi,
+      status: item.status,
+      jamReservasi: item.jamReservasi,
+      tipe: item.tipe,
+      amount: item.amount,
+      paymentStatus: item.paymentStatus,
+      paidAt: item.paidAt
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: formattedData
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: 'Gagal mengambil laporan reservasi'
+    });
+  }
+});
+
+// GET laporan reservasi (status selesai dan pending)
+app.get('/laporan/reservasi/pending', async (req, res) => {
+  try {
+    const reservasi = await Reservasi.find({
+      status: 'selesai',
+      paymentStatus: 'pending'
+    }).sort({ createdAt: -1 }); // optional: terbaru dulu
+
+    const formattedData = reservasi.map(item => ({
+      id: item.id,
+      nama: item.namaPasien,
+      pic: item.pic,
+      tanggal: item.tanggalReservasi,
+      status: item.status,
+      jamReservasi: item.jamReservasi,
+      tipe: item.tipe,
+      amount: item.amount,
+      paymentStatus: item.paymentStatus,
+      paidAt: item.paidAt
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: formattedData
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: 'Gagal mengambil laporan reservasi'
+    });
+  }
+});
+
+// ubah status paymentstatus oleh admin
+app.put('/reservasi/payment/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const updated = await Reservasi.findOneAndUpdate(
+      { id: id }, // 🔥 PENTING: pakai field id kamu
+      {
+        paymentStatus: req.body.paymentStatus,
+        paidAt: req.body.paymentStatus === 'paid' ? new Date() : null
+      },
+      { new: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({ message: 'Data tidak ditemukan' });
+    }
+
+    res.json({ message: 'OK', data: updated });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: err.message });
+  }
+});
 
 server.listen(port, '0.0.0.0', () => {
     console.log(`Server is running on ${port}`);

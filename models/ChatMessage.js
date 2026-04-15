@@ -18,6 +18,11 @@ const chatSchema = new mongoose.Schema({
     enum: ['user', 'doctor'],
     required: true
   },
+  type :{
+    type: String,
+    enum: ['text', 'resep', 'catatan'],
+    default: 'text'
+  },
   timestamp: {
     type: Date,
     default: Date.now

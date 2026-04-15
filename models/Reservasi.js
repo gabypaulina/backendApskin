@@ -77,7 +77,12 @@ const ReservasiSchema = new mongoose.Schema({
     type: String
   },
   resep: [{
-    type: String
+    namaObat: {
+      type: String,
+    },
+    dosis: {
+      type: String,
+    }
   }],
   createdAt: {
     type: Date,
