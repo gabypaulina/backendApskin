@@ -158,7 +158,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
 app.set("io", io)
 
 mongoose.connect(process.env.MONGODB_URI, {
-  // dbName: "skinA",
+  dbName: "skinA",
   useNewUrlParser: true,
   useUnifiedTopology: true
 })
@@ -585,7 +585,7 @@ app.get('/api/verify-email/:token', async (req, res) => {
   // } catch (err) {
   //   res.status(500).send('Terjadi kesalahan');
   // }
-  
+
    try {
     const data = tempUsers[req.params.token];
 
