@@ -191,20 +191,49 @@ const {Invoice} = xendit;
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+// const sendVerificationEmail = async (email, token) => {
+//   const link = `${process.env.BASE_URL}/api/verify-email/${token}`;
+
+//   const data = await resend.emails.send({
+//     from: "onboarding@resend.dev",
+//     to: email,
+//     subject: 'Verifikasi Email',
+//     html: `
+//       <h2>Verifikasi Email Anda</h2>
+//       <p>Klik link dibawah untuk verifikasi:</p>
+//       <a href="${link}">${link}</a>
+//     `
+//   });
+//   console.log("RESEND RESPONSE:", data)
+// };
+
 const sendVerificationEmail = async (email, token) => {
   const link = `${process.env.BASE_URL}/api/verify-email/${token}`;
 
-  const data = await resend.emails.send({
-    from: "onboarding@resend.dev",
-    to: email,
-    subject: 'Verifikasi Email',
-    html: `
-      <h2>Verifikasi Email Anda</h2>
-      <p>Klik link dibawah untuk verifikasi:</p>
-      <a href="${link}">${link}</a>
-    `
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    }
   });
-  console.log("RESEND RESPONSE:", data)
+
+  try {
+    const info = await transporter.sendMail({
+      from: "APSKINA",
+      to: email, // 🔥 bebas kirim ke siapa saja
+      subject: "Verifikasi Email",
+      html: `
+        <h2>Verifikasi Email Anda</h2>
+        <p>Klik link dibawah untuk verifikasi:</p>
+        <a href="${link}">${link}</a>
+      `
+    });
+
+    console.log("EMAIL TERKIRIM:", info);
+  } catch (err) {
+    console.error("ERROR EMAIL:", err);
+  }
 };
 
 const createToken = (userId, role) => {
