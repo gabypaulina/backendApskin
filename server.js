@@ -1,21 +1,23 @@
-require('dotenv').config()
-
-const express = require('express')
-const mongoose = require('mongoose')
-const jwt = require('jsonwebtoken')
-const bcrypt = require('bcrypt')
-const cors = require('cors')
-const validator = require('validator')
-const multer = require('multer')
-const path = require('path')
-const fs = require('fs');
-const {Xendit} = require('xendit-node')
-const http = require("http")
-const { Server } = require("socket.io")
+import 'dotenv/config';
+import express from'express';
+import mongoose from'mongoose';
+import jwt from'jsonwebtoken';
+import bcrypt from'bcrypt';
+import cors from'cors';
+import validator from'validator';
+import multer from'multer';
+import path from'path';
+import fs from'fs';
+import {Xendit} from'xendit-node';
+import http from"http";
+import { Server } from"socket.io";
 const app = express();
-const server = http.createServer(app)
-const admin = require('firebase-admin')
-const serviceAccount = require('./serviceAccountKey.json')
+const  server = http.createServer(app);
+import admin from'firebase-admin';
+
+const serviceAccount = JSON.parse(
+  fs.readFileSync('./serviceAccountKey.json', 'utf-8')
+);
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
 })
@@ -26,23 +28,27 @@ const io = new Server(server, {
   }
 })
 
-const User = require('./models/User')
-const Qna = require('./models/Qna')
-const Skincare = require('./models/Skincare')
-const questions = require('./data/questions')
-const Reservasi = require('./models/Reservasi')
-const Treatment = require('./models/Treatment')
-const Artikel = require('./models/Artikel')
-const Banner = require('./models/Banner')
-const Dokter = require('./models/Dokter')
-const NotifAdmin = require('./models/NotifAdmin')
-const NotifTerapis = require('./models/NotifTerapis')
-const Chat = require('./models/ChatMessage')
-const req = require('express/lib/request')
-const nodemailer = require('nodemailer')
+import User from'./models/User.js';
+import Qna from'./models/Qna.js';
+import Skincare from'./models/Skincare.js';
+import questions from'./data/questions.js';
+import Reservasi from'./models/Reservasi.js';
+import Treatment from'./models/Treatment.js';
+import Artikel from'./models/Artikel.js';
+import Banner from'./models/Banner.js';
+import Dokter from'./models/Dokter.js';
+import NotifAdmin from'./models/NotifAdmin.js';
+import NotifTerapis from'./models/NotifTerapis.js';
+import Chat from'./models/ChatMessage.js';
+// import req from'express/lib/request';
+import nodemailer from'nodemailer';
 import emailjs from "@emailjs/browser";
-const {Resend} = require('resend');
-const crypto = require('crypto')
+import {Resend} from'resend';
+import crypto from'crypto';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 
 // SET UP SOCKET ADMIN ROOM
@@ -3334,9 +3340,9 @@ app.post('/api/xendit-callback', express.json({ type: 'application/json' }), asy
   }
 });
 
-const axios = require('axios');
-const NotifDokter = require('./models/NotifDokter')
-const { title } = require('process')
+import axios from 'axios';
+import NotifDokter from './models/NotifDokter.js';
+import { title } from 'process';
 
 // Endpoint untuk membuat pembayaran (sandbox mode)
 app.post('/api/create-payment', authenticateUser, async (req, res) => {
