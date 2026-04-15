@@ -198,41 +198,52 @@ const {Invoice} = xendit;
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const sendVerificationEmail = async (email, token) => {
-  const link = `${process.env.BASE_URL}/api/verify-email/${token}`;
-
-  const data = await resend.emails.send({
-    from: "onboarding@resend.dev",
-    to: email,
-    subject: 'Verifikasi Email',
-    html: `
-      <h2>Verifikasi Email Anda</h2>
-      <p>Klik link dibawah untuk verifikasi:</p>
-      <a href="${link}">${link}</a>
-    `
-  });
-  console.log("RESEND RESPONSE:", data)
-};
-
-// const sendVerificationEmail = (email, token) => {
+// const sendVerificationEmail = async (email, token) => {
 //   const link = `${process.env.BASE_URL}/api/verify-email/${token}`;
 
-//   emailjs.send(
-//     "service_cmbgbk9",
-//     "template_otzw22j",
-//     {
-//       email: email,
-//       link: link
-//     },
-//     "1GRjJU8ZFZ2RjcwTE"
-//   )
-//   .then((response) => {
-//     console.log("EMAIL TERKIRIM!", response);
-//   })
-//   .catch((error) => {
-//     console.error("ERROR:", error);
+//   const data = await resend.emails.send({
+//     from: "onboarding@resend.dev",
+//     to: email,
+//     subject: 'Verifikasi Email',
+//     html: `
+//       <h2>Verifikasi Email Anda</h2>
+//       <p>Klik link dibawah untuk verifikasi:</p>
+//       <a href="${link}">${link}</a>
+//     `
 //   });
+//   console.log("RESEND RESPONSE:", data)
 // };
+
+import SibApiV3Sdk from 'sib-api-v3-sdk';
+
+const client = SibApiV3Sdk.ApiClient.instance;
+client.authentications['api-key'].apiKey = process.env.BREVO_API_KEY;
+
+const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
+
+export const sendVerificationEmail = async (email, token) => {
+  const link = `${process.env.BASE_URL}/api/verify-email/${token}`;
+
+  try {
+    await apiInstance.sendTransacEmail({
+      sender: { 
+        email: "gabypaulina90@gmail.com", // 🔥 email kamu
+        name: "APSKINA"
+      },
+      to: [{ email: email }],
+      subject: "Verifikasi Email",
+      htmlContent: `
+        <h2>Verifikasi Email Anda</h2>
+        <p>Klik link dibawah ini:</p>
+        <a href="${link}">${link}</a>
+      `
+    });
+
+    console.log("EMAIL BERHASIL DIKIRIM");
+  } catch (err) {
+    console.error("ERROR BREVO:", err);
+  }
+};
 
 const createToken = (userId, role) => {
     return jwt.sign({ id: userId, role }, process.env.JWT_SECRET, {
