@@ -203,7 +203,7 @@ const sendVerificationEmail = async (email, token) => {
 
   const data = await resend.emails.send({
     from: "onboarding@resend.dev",
-    to: "elisabethtjhia@gmail.com",
+    to: "gabypaulina12@gmail.com",
     subject: 'Verifikasi Email',
     html: `
       <h2>Verifikasi Email Anda</h2>
