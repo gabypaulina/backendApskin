@@ -40,6 +40,7 @@ const NotifTerapis = require('./models/NotifTerapis')
 const Chat = require('./models/ChatMessage')
 const req = require('express/lib/request')
 const nodemailer = require('nodemailer')
+import emailjs from "@emailjs/browser";
 const {Resend} = require('resend');
 const crypto = require('crypto')
 
@@ -207,33 +208,24 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 //   console.log("RESEND RESPONSE:", data)
 // };
 
-const sendVerificationEmail = async (email, token) => {
+const sendVerificationEmail = (email, token) => {
   const link = `${process.env.BASE_URL}/api/verify-email/${token}`;
 
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    }
+  emailjs.send(
+    "service_cmbgbk9",
+    "template_ct6beea",
+    {
+      email: email,
+      link: link
+    },
+    "1GRjJU8ZFZ2RjcwTE"
+  )
+  .then((response) => {
+    console.log("EMAIL TERKIRIM!", response);
+  })
+  .catch((error) => {
+    console.error("ERROR:", error);
   });
-
-  try {
-    const info = await transporter.sendMail({
-      from: "APSKINA",
-      to: email, // 🔥 bebas kirim ke siapa saja
-      subject: "Verifikasi Email",
-      html: `
-        <h2>Verifikasi Email Anda</h2>
-        <p>Klik link dibawah untuk verifikasi:</p>
-        <a href="${link}">${link}</a>
-      `
-    });
-
-    console.log("EMAIL TERKIRIM:", info);
-  } catch (err) {
-    console.error("ERROR EMAIL:", err);
-  }
 };
 
 const createToken = (userId, role) => {
