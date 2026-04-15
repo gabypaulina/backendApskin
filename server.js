@@ -198,41 +198,41 @@ const {Invoice} = xendit;
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// const sendVerificationEmail = async (email, token) => {
-//   const link = `${process.env.BASE_URL}/api/verify-email/${token}`;
-
-//   const data = await resend.emails.send({
-//     from: "onboarding@resend.dev",
-//     to: email,
-//     subject: 'Verifikasi Email',
-//     html: `
-//       <h2>Verifikasi Email Anda</h2>
-//       <p>Klik link dibawah untuk verifikasi:</p>
-//       <a href="${link}">${link}</a>
-//     `
-//   });
-//   console.log("RESEND RESPONSE:", data)
-// };
-
-const sendVerificationEmail = (email, token) => {
+const sendVerificationEmail = async (email, token) => {
   const link = `${process.env.BASE_URL}/api/verify-email/${token}`;
 
-  emailjs.send(
-    "service_cmbgbk9",
-    "template_ct6beea",
-    {
-      email: email,
-      link: link
-    },
-    "1GRjJU8ZFZ2RjcwTE"
-  )
-  .then((response) => {
-    console.log("EMAIL TERKIRIM!", response);
-  })
-  .catch((error) => {
-    console.error("ERROR:", error);
+  const data = await resend.emails.send({
+    from: "onboarding@resend.dev",
+    to: email,
+    subject: 'Verifikasi Email',
+    html: `
+      <h2>Verifikasi Email Anda</h2>
+      <p>Klik link dibawah untuk verifikasi:</p>
+      <a href="${link}">${link}</a>
+    `
   });
+  console.log("RESEND RESPONSE:", data)
 };
+
+// const sendVerificationEmail = (email, token) => {
+//   const link = `${process.env.BASE_URL}/api/verify-email/${token}`;
+
+//   emailjs.send(
+//     "service_cmbgbk9",
+//     "template_otzw22j",
+//     {
+//       email: email,
+//       link: link
+//     },
+//     "1GRjJU8ZFZ2RjcwTE"
+//   )
+//   .then((response) => {
+//     console.log("EMAIL TERKIRIM!", response);
+//   })
+//   .catch((error) => {
+//     console.error("ERROR:", error);
+//   });
+// };
 
 const createToken = (userId, role) => {
     return jwt.sign({ id: userId, role }, process.env.JWT_SECRET, {
