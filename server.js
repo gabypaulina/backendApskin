@@ -507,16 +507,16 @@ app.post('/api/register', async (req, res) => {
 
         // const token = createToken(user._id, user.role);
 
-        res.status(201).json({
-        token,
-        user: {
-            id: user._id,
-            nama: user.nama,
-            email: user.email,
-            role: user.role
-        },
-        message: 'Registrasi berhasil'
-        });
+        // res.status(201).json({
+        // token,
+        // user: {
+        //     id: user._id,
+        //     nama: user.nama,
+        //     email: user.email,
+        //     role: user.role
+        // },
+        // message: 'Registrasi berhasil'
+        // });
     }catch (err){
         if(err.code === 11000) {
             return res.status(400).json({ message: 'Akun sudah terdaftar' })
@@ -585,19 +585,27 @@ app.get('/api/verify-email/:token', async (req, res) => {
   // } catch (err) {
   //   res.status(500).send('Terjadi kesalahan');
   // }
-  const data = tempUsers[req.params.token];
+  
+   try {
+    const data = tempUsers[req.params.token];
 
-  if(!data) {
-    return res.status(400).send('Token tidak ditemukan')
+    if (!data) {
+      return res.status(400).send('Token tidak ditemukan');
+    }
+
+    const user = await User.create({
+      ...data,
+      role: 'user',
+      isVerified: true,
+    });
+
+    delete tempUsers[req.params.token];
+
+    return res.send('Email berhasil diverifikasi. Silakan login.');
+  } catch (err) {
+    console.log(err);
+    return res.status(500).send('Terjadi kesalahan server');
   }
-
-  const user = await User.create({
-    ...data,
-    role: 'user', // Default role,
-    isVerified: true,
-  });
-
-  delete tempUsers[req.params.token]
 });
 
 // GET TOTAL USERS
