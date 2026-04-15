@@ -207,7 +207,7 @@ const sendVerificationEmail = async (email, token) => {
     subject: 'Verifikasi Email',
     html: `
       <h2>Verifikasi Email Anda</h2>
-      <p>Klik link dibawah untuk verifikasi:</p>
+      <p>Email user: ${email}</p>
       <a href="${link}">${link}</a>
     `
   });
