@@ -52,6 +52,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const offlineMessages = new Map();
 
 // SET UP SOCKET ADMIN ROOM
 io.on("connection", (socket) => {
@@ -86,18 +87,46 @@ io.on("connection", (socket) => {
   socket.on("join_room", (reservationId) => {
     socket.join(reservationId);
     console.log("Join chat room:", reservationId);
+
+    const pending = offlineMessages.get(reservationId) || []
+
+    pending.forEach((msg) => {
+      socket.emit("receive_message", msg)
+    })
+
+    socket.emit("joined_room", reservationId)
   });
 
   // KIRIM TEXT MESSAGE
-  socket.on("send_message", (data) => {
+  socket.on("send_message", async (data) => {
+    const room = data.reservationId;
     console.log("MESSAGE:", data)
-    io.to(data.reservationId).emit("receive_message", data);
+
+    const saved = await Chat.create({
+      ...data,
+      timestamp: new Date(),
+    })
+
+    io.to(room).emit("receive_message", data);
+
+  
   });
 
   // KIRIM IMAGE
   socket.on("send_image", (data) => {
-    io.to(data.reservationId).emit("receive_image", data);
-  });
+  const room = data.reservationId;
+
+  const message = {
+    messageId: data.messageId,
+    reservationId: room,
+    image: data.image, // base64 langsung
+    senderType: data.senderType,
+    timestamp: data.timestamp,
+    type: "image",
+  };
+
+  io.to(room).emit("receive_image", message);
+});
 
   socket.on("disconnect", () => {
     console.log("Disconnected:", socket.io)
@@ -1355,7 +1384,7 @@ app.post('/api/reservasi', authenticateUser, async (req, res) => {
       await notifTer.save();
 
       const io = req.app.get("io");
-      io.to("terapis_room").emit("new_notification", {
+      io.to("terapis_room").emit("new_notification_terapis", {
         message: "Reservasi baru untuk Anda",
         data: notifTer,
       });
@@ -1741,18 +1770,24 @@ app.get("/api/dokter/reservasi", authenticateUser, async (req, res) => {
         const userData = await User.findById(r.userId);
 
         let age = null;
-        if(userData?.tanggalLahir) {
-          const today = new Date();
-          const birthDate = new Date(userData.tanggalLahir);
 
-          age = today.getFullYear() - birthDate.getFullYear();
-          const m = today.getMonth() - birthDate.getMonth();
+        if (userData?.tanggalLahir) {
+          const [day, month, year] = userData.tanggalLahir.split('/');
 
-          if (m<0 || (m===0 && today.getDate() < birthDate.getDate())) {
-            age--;
+          const birthDate = new Date(`${year}-${month}-${day}`);
+
+          if (!isNaN(birthDate)) {
+            const today = new Date();
+
+            age = today.getFullYear() - birthDate.getFullYear();
+
+            const m = today.getMonth() - birthDate.getMonth();
+
+            if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+              age--;
+            }
           }
         }
-
         const avgRoutine = calculateAverageRoutine(userData, r.createdAt);
 
         return{
@@ -1770,15 +1805,22 @@ app.get("/api/dokter/reservasi", authenticateUser, async (req, res) => {
         const userData = await User.findOne(r.userId);
 
         let age = null;
-        if(userData?.tanggalLahir) {
-          const today = new Date();
-          const birthDate = new Date(userData.tanggalLahir);
 
-          age = today.getFullYear() - birthDate.getFullYear();
-          const m = today.getMonth() - birthDate.getMonth();
+        if (userData?.tanggalLahir) {
+          const [day, month, year] = userData.tanggalLahir.split('/');
 
-          if (m<0 || (m===0 && today.getDate() < birthDate.getDate())) {
-            age--;
+          const birthDate = new Date(`${year}-${month}-${day}`);
+
+          if (!isNaN(birthDate)) {
+            const today = new Date();
+
+            age = today.getFullYear() - birthDate.getFullYear();
+
+            const m = today.getMonth() - birthDate.getMonth();
+
+            if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+              age--;
+            }
           }
         }
 
@@ -1894,18 +1936,25 @@ app.get("/api/terapis/reservasi", authenticateUser, async (req, res) => {
     const latestTodayReservationsRaw = await Promise.all(
       latestTodayReservations.map(async (r) => {
         const qna = await Qna.findOne({userId: r.userId});
-        const userData = await User.findOne(r.userId);
+        const userData = await User.findById(r.userId);
 
         let age = null;
-        if(userData?.tanggalLahir) {
-          const today = new Date();
-          const birthDate = new Date(userData.tanggalLahir);
 
-          age = today.getFullYear() - birthDate.getFullYear();
-          const m = today.getMonth() - birthDate.getMonth();
+        if (userData?.tanggalLahir) {
+          const [day, month, year] = userData.tanggalLahir.split('/');
 
-          if (m<0 || (m===0 && today.getDate() < birthDate.getDate())) {
-            age--;
+          const birthDate = new Date(`${year}-${month}-${day}`);
+
+          if (!isNaN(birthDate)) {
+            const today = new Date();
+
+            age = today.getFullYear() - birthDate.getFullYear();
+
+            const m = today.getMonth() - birthDate.getMonth();
+
+            if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+              age--;
+            }
           }
         }
 
@@ -1923,19 +1972,29 @@ app.get("/api/terapis/reservasi", authenticateUser, async (req, res) => {
 
     const todayReservationsRaw = await Promise.all(
       todayReservations.map(async (r) => {
+
+        console.log('user id:', r.userId)
         const qna = await Qna.findOne({userId: r.userId});
-        const userData = await User.findOne(r.userId);
+        const userData = await User.findById(r.userId);
+        console.log('user data:', userData)
 
         let age = null;
-        if(userData?.tanggalLahir) {
-          const today = new Date();
-          const birthDate = new Date(userData.tanggalLahir);
 
-          age = today.getFullYear() - birthDate.getFullYear();
-          const m = today.getMonth() - birthDate.getMonth();
+        if (userData?.tanggalLahir) {
+          const [day, month, year] = userData.tanggalLahir.split('/');
 
-          if (m<0 || (m===0 && today.getDate() < birthDate.getDate())) {
-            age--;
+          const birthDate = new Date(`${year}-${month}-${day}`);
+
+          if (!isNaN(birthDate)) {
+            const today = new Date();
+
+            age = today.getFullYear() - birthDate.getFullYear();
+
+            const m = today.getMonth() - birthDate.getMonth();
+
+            if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+              age--;
+            }
           }
         }
 
@@ -2340,6 +2399,8 @@ app.post('/api/chat/text', authenticateUser, async (req, res) => {
       senderType,
       timestamp: new Date()
     });
+
+    io.to(reservationId).emit("receive_message", newMessage);
     
     res.status(201).json(newMessage);
 
@@ -2377,11 +2438,21 @@ app.post('/api/chat/system', async (req, res) => {
 // send image
 app.post('/api/chat/upload/:reservationId', authenticateUser, uploadChat.single('image'), (req, res) => {
   try {
+    const reservationId = req.params.id;
     console.log("FILE:", req.file);
 
-    res.json({
-      imageUrl: `/uploads/chat/${req.file.filename}`
-    });
+    const message = {
+      reservationId,
+      image: `/upload/chat/${req.file.filename}`,
+      type: 'image',
+      senderType: res.body.senderType,
+      timestamp : new Date()
+    };
+
+    io.to(reservationId).emit("receive_image", message);
+
+    return res.json(message)
+
   } catch (err) {
     res.status(500).json({
       message: 'Gagal upload gambar',
@@ -3724,6 +3795,12 @@ app.put("/notifications/dokter/read-all", authenticateUser, async (req,res) => {
     console.log(err);
     res.status(500).json({ message: "Gagal update notifikasi" });
   }
+})
+
+// TANDAI BACA (ONLY ADMIN) FOR RESERVASION NOTIF
+app.put("/notifications/terapis/read-all", async (req,res) => {
+  await NotifTerapis.updateMany({}, {isRead: true});
+  res.json({message: "Semua notifikasi sudah dibaca"})
 })
 
 // LAPORAN RESERVASI ADMIN
