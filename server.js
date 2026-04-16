@@ -1871,15 +1871,22 @@ app.get("/api/dokter/laporan", authenticateUser, async (req, res) => {
         const userData = await User.findById(r.userId);
 
         let age = null;
+
         if (userData?.tanggalLahir) {
-          const today = new Date();
-          const birthDate = new Date(userData.tanggalLahir);
+          const [day, month, year] = userData.tanggalLahir.split('/');
 
-          age = today.getFullYear() - birthDate.getFullYear();
-          const m = today.getMonth() - birthDate.getMonth();
+          const birthDate = new Date(`${year}-${month}-${day}`);
 
-          if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-            age--;
+          if (!isNaN(birthDate)) {
+            const today = new Date();
+
+            age = today.getFullYear() - birthDate.getFullYear();
+
+            const m = today.getMonth() - birthDate.getMonth();
+
+            if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+              age--;
+            }
           }
         }
 
@@ -2037,15 +2044,22 @@ app.get("/api/terapis/laporan", authenticateUser, async (req, res) => {
         const userData = await User.findById(r.userId);
 
         let age = null;
+
         if (userData?.tanggalLahir) {
-          const today = new Date();
-          const birthDate = new Date(userData.tanggalLahir);
+          const [day, month, year] = userData.tanggalLahir.split('/');
 
-          age = today.getFullYear() - birthDate.getFullYear();
-          const m = today.getMonth() - birthDate.getMonth();
+          const birthDate = new Date(`${year}-${month}-${day}`);
 
-          if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-            age--;
+          if (!isNaN(birthDate)) {
+            const today = new Date();
+
+            age = today.getFullYear() - birthDate.getFullYear();
+
+            const m = today.getMonth() - birthDate.getMonth();
+
+            if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+              age--;
+            }
           }
         }
 
